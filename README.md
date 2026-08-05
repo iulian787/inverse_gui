@@ -3,17 +3,59 @@
 A GUI between the researcher and the AI4NS inverse-design optimizer: specify property targets in a form,
 launch single-point or Pareto runs, and browse the resulting space of designs.
 
-**Status: the application does not exist yet.** What is here is the design deck, the environment
-scaffolding to build both required Python environments, and a fake optimizer that lets the GUI be
-developed and tested before the model checkpoints are available.
+**Status:** the form, the execution layer and the design-space view work end to end against a
+stand-in optimizer. Real solves are blocked only on the model checkpoints (see below). Run
+history is list-and-reload; cross-run compare and FEniCS validation are not built.
+
+```bash
+./scripts/setup.sh          # first time only
+.venv/bin/streamlit run app.py
+```
 
 | | |
 |---|---|
-| `design_slides.html` | the design walkthrough — open in a browser |
+| `app.py` | the Streamlit app — three panes: input, run/progress, design space |
+| `inverse_gui/` | the package (see *Architecture* below) |
+| `design_slides.html` | the original design walkthrough — open in a browser |
 | `scripts/setup.sh` | builds both environments, idempotent |
 | `scripts/fake_optimizer.py` | stand-in for the optimizer; unblocks development |
-| `docs/environment.md` | why the environments are split the way they are |
-| `CLAUDE.md` | working notes and measured constraints |
+| `docs/environment.md` | why the environments are split, and the measured launch constraints |
+| `CLAUDE.md` | working notes |
+
+## Architecture
+
+```
+domain/      pure       property tables, directive grammar, RunConfig -> argv, rules, cost
+execution/   no UI      child env, PTY process, runner, run store, registry, preflight
+parse/       no UI      stdout line classifier + progress reducer
+artifacts/   numpy      both npz shapes -> one DesignSet
+ui/          streamlit  form sections, run pane, design space
+```
+
+Nothing under the first four may import `streamlit` — enforced by `tests/test_architecture.py`.
+The PTY reader runs on a daemon thread, and `st.session_state` touched from a thread without a
+script-run context does not raise: it silently returns a process-global mock shared across every
+session. Keeping the layers apart is what makes that impossible rather than merely unlikely.
+
+Three behaviours worth knowing before changing the execution layer, all measured:
+
+- The optimizer is launched via its interpreter path directly, never `conda run`, which orphans
+  the child on cancel. Cancel is `killpg` on its own process group.
+- Its stdout is read through a **PTY**. The IPOPT iteration table is written by C++ to C-level
+  stdout, where `python -u` has no effect; against a pipe it arrives in one lump at exit.
+- Every run is written to `runs/<id>/` with a `status.json`. That is what lets the app reattach
+  to a live run after a hot-reload, a browser refresh, or a restart — Stop keeps working from the
+  recorded process group, and progress is replayed from the log.
+
+## Tests
+
+```bash
+.venv/bin/python -m pytest tests/ -q
+```
+
+Around 60% of the code is pure Python with no Streamlit runtime. The suite includes a timing
+assertion that log lines arrive incrementally (the regression test for the PTY decision) and a
+cancel test asserting zero surviving processes.
 
 ## Prerequisites
 
@@ -72,7 +114,7 @@ You generally do **not** need to activate it — a venv's `bin/python` already k
 
 ```bash
 .venv/bin/python -c "import streamlit, plotly, numpy"
-.venv/bin/streamlit run app.py          # once app.py exists
+.venv/bin/streamlit run app.py
 ```
 
 This is the form to use in scripts and anything spawned programmatically, since there is no shell state to
@@ -88,8 +130,10 @@ still launch `cenv`'s interpreter by absolute path, which is exactly what the GU
 
 ## Smoke test
 
-`app.py` does not exist yet, so the thing to run is the fake optimizer. It mirrors the real CLI surface,
-streams a realistic IPOPT iteration table, and writes artifacts with the real key sets:
+`config.toml` ships pointing at the fake optimizer, so the app is fully usable straight after setup:
+set a checkpoint path in section A (any existing file — the fake does not read it), pick a target in
+section B, and Launch. To drive the fake directly instead, it mirrors the real CLI surface, streams a
+realistic IPOPT iteration table, and writes artifacts with the real key sets:
 
 ```bash
 .venv/bin/python scripts/fake_optimizer.py \

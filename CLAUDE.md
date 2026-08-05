@@ -4,10 +4,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A GUI over the AI4NS inverse-design optimizer. **The application itself does not exist yet** — so far the
-directory holds the design deck (`design_slides.html`) and the environment scaffolding needed to build it.
+A Streamlit GUI over the AI4NS inverse-design optimizer: a form that generates command lines for the two
+optimizer CLIs, launches them, streams their output live, and plots the resulting design space.
 
-Not a git repository (yet). No tests.
+```bash
+./scripts/setup.sh                       # builds .venv and cenv, idempotent
+.venv/bin/streamlit run app.py
+.venv/bin/python -m pytest tests/ -q     # ~143 tests, ~30s
+```
+
+Working: form (sections A–F), physics gating, validation, cost estimate, launch/stream/cancel, reattach,
+design-space scatter with click-to-inspect, run history list-and-reload, preflight doctor.
+Not built: cross-run compare, FEniCS validation panel (gated off — the env does not exist).
+
+## Layering — the one rule that matters
+
+```
+domain/ execution/ parse/ artifacts/     pure; MUST NOT import streamlit
+ui/  app.py                              the only places that may
+```
+
+`tests/test_architecture.py` enforces this. The reason is not tidiness: the PTY reader runs on a daemon
+thread, and `st.session_state` accessed without a script-run context **does not raise** — it silently
+returns a process-global mock shared by every thread and every browser session
+(`runtime/state/session_state_proxy.py`). That corruption is invisible with one tab open.
+
+Related: the run registry lives in `st.cache_resource`, not a module global, because Streamlit evicts
+every watched local module from `sys.modules` on any source save. A module global would be emptied
+mid-run, leaving a live optimizer with no Stop button.
 
 ## Environments — three of them, deliberately
 
@@ -54,6 +78,26 @@ All three are measured, not assumed. Full reasoning and the raw numbers are in `
 Also required in the child: `cwd` = the ai4ns repo root (the scripts `sys.path.insert` and nothing is
 installed), `MPLBACKEND=Agg` (bare `import matplotlib.pyplot` at line 47), and `OMP_NUM_THREADS` /
 `MKL_NUM_THREADS` (IPOPT, MUMPS and torch each grab every core by default).
+
+## Gotchas found the hard way
+
+Each of these cost real debugging time; the comment in the code names the failure.
+
+- **Validate after the form renders, not before.** Widgets write into `RunConfig` during
+  `sections.render()`, so validating first makes the Launch gate lag one interaction. `app.py` validates
+  twice: once for inline field hints (needed on the very first render) and once after, for the gate.
+- **To change a widget programmatically, assign its session_state key — do not delete it.** Deleting
+  works under `AppTest` and fails in a browser, where the frontend re-sends the old value and it wins
+  over `value=`. This bit the mode toggle's `target_tol`/`restarts` defaults.
+- **Do not set `dragmode='select'` on the scatter.** A plain click then draws a zero-area selection box
+  and selects nothing.
+- **Selection must read `customdata`, never `point_index`.** Designs are split across traces so the
+  legend can filter them, and `point_index` is trace-relative — clicking a dominated point would open a
+  different design's microstructure.
+- **Streamlit's file watcher does not fire reliably on this mount.** After editing, restart the server;
+  otherwise you are testing stale code and will chase phantom bugs.
+- **`--pareto_steps` is always emitted**, even at its default, because it is the defining parameter of
+  the sweep (and it is how a single stand-in script tells the two modes apart).
 
 ## Developing without checkpoints
 

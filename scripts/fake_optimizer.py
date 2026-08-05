@@ -81,11 +81,12 @@ def build_parser():
     for name, ref in PROP_DEFAULTS.items():
         p.add_argument(f'--{name}_ref', type=float, default=ref, dest=f'{name}_ref')
 
+    # Defaults mirror utils/optimization/filters.py:101-105 exactly.
     p.add_argument('--ac_epsi', type=float, default=2.0)
-    p.add_argument('--ac_lambda', type=float, default=1.0)
-    p.add_argument('--ac_dt', type=float, default=0.01)
+    p.add_argument('--ac_lambda', type=float, default=40.0)
+    p.add_argument('--ac_dt', type=float, default=0.1)
     p.add_argument('--ac_steps', type=int, default=10)
-    p.add_argument('--ac_sharpen_beta', type=float, default=50.0)
+    p.add_argument('--ac_sharpen_beta', type=float, default=0.0)
 
     p.add_argument('--target_tol', type=float, default=0.001)
     p.add_argument('--enforce_isotropy', action='store_true')
@@ -123,8 +124,12 @@ def build_parser():
     p.add_argument('--pareto_steps', type=int, default=None)
 
     # Fake-only knobs for exercising Runner failure paths.
-    p.add_argument('--iters', type=int, default=25, help='[fake] iterations to emit')
-    p.add_argument('--iter_delay', type=float, default=1.0, help='[fake] seconds per iteration')
+    # Env defaults keep the test suite fast without every call site passing flags.
+    p.add_argument('--iters', type=int, default=int(os.environ.get('FAKE_ITERS', 25)),
+                   help='[fake] iterations to emit')
+    p.add_argument('--iter_delay', type=float,
+                   default=float(os.environ.get('FAKE_ITER_DELAY', 1.0)),
+                   help='[fake] seconds per iteration')
     p.add_argument('--crash', action='store_true', help='[fake] die mid-solve with exit 3')
     p.add_argument('--hang', action='store_true', help='[fake] never terminate; test cancel')
     return p
@@ -288,14 +293,31 @@ def main():
 
     if is_pareto:
         n = max(2, args.pareto_steps)
-        loss = []
-        for stage, label in enumerate(['feasibility', 'payoff', 'sweep', 'rank']):
-            cprint(f"\nstage {stage}/3  {label}")
-            if label == 'sweep':
+        n_obj = sum(1 for p, (m, _) in directives.items()
+                    if m in ('max', 'min') and p != 'rho') or 1
+        cprint(f"\n  Estimated solves: {args.restarts} feasibility + "
+               f"({n_obj} payoff rows + {n} grid pts ({n}^{n_obj}))"
+               f" × {args.restarts} restarts = {args.restarts * (n_obj + n)} total")
+        # Stage banners match upstream byte for byte, including the U+2500 rules --
+        # a fake that prints its own format would not exercise the real parser.
+        for stage, title in enumerate([
+            'Constraint Feasibility Check',
+            'Payoff Table',
+            'Epsilon-Constraint Pareto Sweep (ρ-objective)',
+            'Non-Dominated Sorting',
+        ]):
+            cprint("\n" + "─" * 65)
+            cprint(f"Stage {stage}: {title}")
+            cprint("─" * 65)
+            if stage == 2:
+                cprint(f"\n  Epsilon grid: [{n}] points per property "
+                       f"({n} combinations × {args.restarts} restarts "
+                       f"= {n * args.restarts} solves)")
                 for g in range(n):
-                    cprint(f"  [grid {g + 1}/{n}]")
+                    cprint(f"\n  Grid point {g + 1}/{n}: "
+                           f"{{'eps': {0.1 * (g + 1):.4g}}}")
                     emit_ipopt_banner()
-                    loss.append(emit_ipopt_rows(max(2, args.iters // n), args.iter_delay))
+                    emit_ipopt_rows(max(2, args.iters // n), args.iter_delay)
                     if args.crash and g == n // 2:
                         cprint("[fake] --crash"); sys.exit(3)
             else:

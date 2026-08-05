@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inverse-Design GUI — Component Slides</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --panel:#ffffff; --ink:#1a2230; --muted:#5b6675;
+    --line:#c9d2de; --accent:#2f6fed; --accent-soft:#e4edfd;
+    --ok:#1f9d55; --warn:#c23b3b; --chip:#eef1f5; --shadow:rgba(20,30,50,.10);
+    --a:#2f6fed; --b:#8b46d6; --c:#0e9f9f; --d:#d98324;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#10151d; --panel:#171e28; --ink:#e8edf4; --muted:#9aa7b8;
+      --line:#2c3745; --accent:#6ea0ff; --accent-soft:#1d2b45;
+      --ok:#4ecb82; --warn:#ff7b7b; --chip:#212a36; --shadow:rgba(0,0,0,.4);
+      --a:#6ea0ff; --b:#c08bff; --c:#4bd6d6; --d:#f0a94a;
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--ink);
+    font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex; flex-direction:column; align-items:center;
+  }
+  header.bar{
+    width:100%; max-width:1100px; display:flex; align-items:center; justify-content:space-between;
+    padding:14px 22px; gap:12px;
+  }
+  .brand{font-weight:700; letter-spacing:.2px}
+  .brand small{color:var(--muted); font-weight:500}
+  .deck{
+    width:100%; max-width:1100px; flex:1; padding:0 22px 12px; display:flex; flex-direction:column;
+  }
+  .slide{
+    background:var(--panel); border:1px solid var(--line); border-radius:16px;
+    box-shadow:0 8px 30px var(--shadow); padding:30px 34px; flex:1;
+    display:none; flex-direction:column; min-height:560px;
+  }
+  .slide.active{display:flex; animation:fade .25s ease}
+  @keyframes fade{from{opacity:.4;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .kicker{color:var(--accent); font-weight:700; font-size:13px; letter-spacing:.14em; text-transform:uppercase}
+  h1{font-size:30px; margin:6px 0 2px}
+  h2{font-size:25px; margin:6px 0 4px}
+  .sub{color:var(--muted); margin:0 0 14px; font-size:15px}
+  .cols{display:grid; grid-template-columns:1.05fr .95fr; gap:26px; flex:1; align-items:center}
+  .cols.wide{grid-template-columns:1fr}
+  ul.notes{margin:6px 0 0; padding-left:0; list-style:none}
+  ul.notes li{position:relative; padding:6px 0 6px 26px; border-bottom:1px dashed var(--line)}
+  ul.notes li:last-child{border-bottom:none}
+  ul.notes li::before{content:"▸"; position:absolute; left:4px; top:6px; color:var(--accent)}
+  ul.notes li b{color:var(--ink)}
+  code{background:var(--chip); padding:1px 6px; border-radius:6px; font-size:13px;
+    font-family:"SF Mono",Menlo,Consolas,monospace}
+  .figwrap{display:flex; align-items:center; justify-content:center}
+  svg{width:100%; height:auto; max-height:460px}
+  .txt{font:12px/1.3 "SF Mono",Menlo,Consolas,monospace; fill:var(--ink)}
+  .txt.mut{fill:var(--muted)}
+  .txt.sm{font-size:10.5px}
+  .txt.b{font-weight:700}
+  .box{fill:var(--panel); stroke:var(--line); stroke-width:1.5}
+  .box.acc{fill:var(--accent-soft); stroke:var(--accent)}
+  .flow{stroke:var(--muted); stroke-width:1.6; fill:none; marker-end:url(#arrow)}
+  .chip{fill:var(--chip); stroke:var(--line)}
+  footer.nav{
+    width:100%; max-width:1100px; display:flex; align-items:center; justify-content:space-between;
+    padding:12px 22px 22px;
+  }
+  .dots{display:flex; gap:7px; flex-wrap:wrap}
+  .dot{width:9px; height:9px; border-radius:50%; background:var(--line); border:none; cursor:pointer; padding:0}
+  .dot.on{background:var(--accent); transform:scale(1.25)}
+  button.btn{
+    background:var(--accent); color:#fff; border:none; border-radius:10px; padding:9px 16px;
+    font-weight:600; cursor:pointer; font-size:14px;
+  }
+  button.btn.ghost{background:transparent; color:var(--accent); border:1px solid var(--accent)}
+  button.btn:disabled{opacity:.4; cursor:default}
+  .counter{color:var(--muted); font-variant-numeric:tabular-nums; font-size:14px}
+  .legend{display:flex; gap:14px; flex-wrap:wrap; margin-top:10px; font-size:12.5px; color:var(--muted)}
+  .legend span{display:inline-flex; align-items:center; gap:6px}
+  .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .tag{display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; border-radius:20px;
+    background:var(--accent-soft); color:var(--accent); margin-left:8px; vertical-align:middle}
+  .tag.open{background:var(--chip); color:var(--muted)}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="brand">AI4NS · Inverse-Design GUI <small>— component walkthrough</small></div>
+  <div class="counter"><span id="cur">1</span> / <span id="tot">11</span></div>
+</header>
+
+<main class="deck" id="deck">
+
+  <!-- 1 · TITLE -->
+  <section class="slide active">
+    <div class="kicker">Design walkthrough</div>
+    <h1>A GUI between the researcher and the optimizer</h1>
+    <p class="sub">Specify property targets in a form → launch single-point or Pareto runs → browse the resulting <em>space of designs</em>.</p>
+    <div class="cols">
+      <ul class="notes">
+        <li><b>The optimizer today:</b> two CLI scripts with ~40 property-target flags, or a chat-only compogen plugin.</li>
+        <li><b>The gap:</b> no form-based GUI, dashboard, or HTTP API anywhere in the repo.</li>
+        <li><b>The build:</b> a structured input form, live progress, and an interactive results view — no CLI flags to memorize.</li>
+        <li><b>Reuse, don't rebuild:</b> the input schema and the optimizer stay exactly as they are.</li>
+      </ul>
+      <div class="figwrap">
+        <svg viewBox="0 0 380 300" role="img" aria-label="Researcher to optimizer overview">
+          <defs>
+            <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+              <path d="M0,0 L7,3 L0,6 Z" fill="var(--muted)"/>
+            </marker>
+          </defs>
+          <circle cx="55" cy="150" r="26" class="box acc"/>
+          <text x="55" y="154" text-anchor="middle" class="txt b">you</text>
+          <text x="55" y="196" text-anchor="middle" class="txt mut sm">researcher</text>
+          <rect x="120" y="118" width="110" height="64" rx="10" class="box acc"/>
+          <text x="175" y="146" text-anchor="middle" class="txt b">GUI</text>
+          <text x="175" y="164" text-anchor="middle" class="txt mut sm">form + results</text>
+          <rect x="272" y="118" width="92" height="64" rx="10" class="box"/>
+          <text x="318" y="146" text-anchor="middle" class="txt b">optimizer</text>
+          <text x="318" y="164" text-anchor="middle" class="txt mut sm">IPOPT + AC</text>
+          <path class="flow" d="M83,150 L118,150"/>
+          <path class="flow" d="M232,150 L270,150"/>
+          <path class="flow" d="M270,172 C245,215 150,215 128,180" />
+          <text x="196" y="232" text-anchor="middle" class="txt mut sm">designs + achieved properties</text>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 · ARCHITECTURE -->
+  <section class="slide">
+    <div class="kicker">Component 1</div>
+    <h2>Architecture &amp; data flow</h2>
+    <p class="sub">One execution layer (the <code>Runner</code>) sits between the form and the optimizer; artifacts feed the results view and a run store.</p>
+    <div class="cols">
+      <div class="figwrap">
+        <svg viewBox="0 0 420 320" role="img" aria-label="Data flow diagram">
+          <rect x="14" y="20" width="120" height="52" rx="9" class="box acc"/>
+          <text x="74" y="42" text-anchor="middle" class="txt b">Input form</text>
+          <text x="74" y="59" text-anchor="middle" class="txt mut sm">RunConfig</text>
+
+          <rect x="150" y="20" width="120" height="52" rx="9" class="box acc"/>
+          <text x="210" y="42" text-anchor="middle" class="txt b">Runner</text>
+          <text x="210" y="59" text-anchor="middle" class="txt mut sm">submit/stream/result</text>
+
+          <rect x="286" y="20" width="120" height="52" rx="9" class="box"/>
+          <text x="346" y="42" text-anchor="middle" class="txt b">Optimizer</text>
+          <text x="346" y="59" text-anchor="middle" class="txt mut sm">utils/optimization</text>
+
+          <rect x="286" y="130" width="120" height="52" rx="9" class="box"/>
+          <text x="346" y="152" text-anchor="middle" class="txt b">Artifacts</text>
+          <text x="346" y="169" text-anchor="middle" class="txt mut sm">.npz / .png</text>
+
+          <rect x="150" y="130" width="120" height="52" rx="9" class="box acc"/>
+          <text x="210" y="149" text-anchor="middle" class="txt b">Design-space</text>
+          <text x="210" y="166" text-anchor="middle" class="txt mut sm">results view</text>
+
+          <rect x="150" y="240" width="120" height="52" rx="9" class="box"/>
+          <text x="210" y="262" text-anchor="middle" class="txt b">Run store</text>
+          <text x="210" y="279" text-anchor="middle" class="txt mut sm">history / logbook</text>
+
+          <path class="flow" d="M134,46 L149,46"/>
+          <path class="flow" d="M270,46 L285,46"/>
+          <path class="flow" d="M346,72 L346,129"/>
+          <path class="flow" d="M286,156 L271,156"/>
+          <path class="flow" d="M210,182 L210,239"/>
+          <path class="flow" d="M210,72 L210,110 M210,110 L212,110" stroke-dasharray="4 3"/>
+          <text x="228" y="104" class="txt mut sm">live events</text>
+        </svg>
+      </div>
+      <ul class="notes">
+        <li><b>Form → RunConfig:</b> a validated object built from the existing Pydantic schema.</li>
+        <li><b><code>Runner</code>:</b> the single seam — <code>submit / stream / result / cancel</code>.</li>
+        <li><b>Optimizer unchanged:</b> the same IPOPT + Allen–Cahn stack writes the same <code>.npz</code>/<code>.png</code> artifacts.</li>
+        <li><b>Results view</b> reads artifacts; <b>run store</b> persists every run for history &amp; compare.</li>
+        <li><b>Live events</b> stream back through the Runner during a solve.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 3 · LAYOUT -->
+  <section class="slide">
+    <div class="kicker">Component 2</div>
+    <h2>Three-pane layout</h2>
+    <p class="sub">Input · Run/progress · Design-space, with a run-history strip along the bottom.</p>
+    <div class="cols wide">
+      <div class="figwrap">
+        <svg viewBox="0 0 900 340" role="img" aria-label="Three pane layout mockup">
+          <rect x="10" y="10" width="880" height="320" rx="12" class="box"/>
+          <rect x="24" y="24" width="852" height="30" rx="7" class="chip"/>
+          <text x="40" y="44" class="txt b">Mode:  ● Single-point   ○ Pareto</text>
+          <text x="770" y="44" class="txt mut">[ Load preset ▾ ]</text>
+
+          <!-- input -->
+          <rect x="24" y="64" width="250" height="212" rx="8" class="box acc"/>
+          <text x="40" y="86" class="txt b">INPUT (form)</text>
+          <text x="40" y="108" class="txt sm">A Physics / checkpoints</text>
+          <text x="40" y="126" class="txt sm">B Targets (directives)</text>
+          <text x="40" y="144" class="txt sm">C Phase props A/B/AB</text>
+          <text x="40" y="162" class="txt sm mut">D Tuning ▸</text>
+          <text x="40" y="180" class="txt sm mut">E Pareto ▸</text>
+          <text x="40" y="198" class="txt sm mut">F Validation ▸</text>
+
+          <!-- run -->
+          <rect x="288" y="64" width="270" height="212" rx="8" class="box"/>
+          <text x="304" y="86" class="txt b">RUN / PROGRESS</text>
+          <rect x="304" y="98" width="70" height="24" rx="6" class="box acc"/>
+          <text x="339" y="114" text-anchor="middle" class="txt sm">▶ Launch</text>
+          <text x="392" y="114" class="txt sm mut">⏹ Stop</text>
+          <rect x="304" y="132" width="238" height="86" rx="6" class="chip"/>
+          <text x="316" y="152" class="txt sm mut">IPOPT iter 42  obj=… viol=…</text>
+          <text x="316" y="170" class="txt sm mut">IPOPT iter 43  …</text>
+          <text x="316" y="188" class="txt sm mut">stage 2/3  sweeping ε-grid</text>
+          <rect x="304" y="230" width="238" height="12" rx="6" class="chip"/>
+          <rect x="304" y="230" width="150" height="12" rx="6" fill="var(--accent)"/>
+
+          <!-- design space -->
+          <rect x="572" y="64" width="304" height="212" rx="8" class="box acc"/>
+          <text x="588" y="86" class="txt b">DESIGN SPACE</text>
+          <line x1="600" y1="250" x2="600" y2="104" stroke="var(--muted)"/>
+          <line x1="600" y1="250" x2="856" y2="250" stroke="var(--muted)"/>
+          <text x="590" y="104" class="txt sm mut">Eᵧ</text>
+          <text x="852" y="268" class="txt sm mut">ρ</text>
+          <circle cx="650" cy="210" r="4" fill="var(--a)"/><circle cx="690" cy="180" r="4" fill="var(--a)"/>
+          <circle cx="720" cy="150" r="4" fill="var(--a)"/><circle cx="760" cy="140" r="5" fill="var(--accent)" stroke="var(--ink)"/>
+          <circle cx="800" cy="128" r="4" fill="var(--a)"/><circle cx="700" cy="205" r="4" fill="var(--b)"/>
+          <circle cx="740" cy="185" r="4" fill="var(--b)"/>
+          <rect x="770" y="150" width="86" height="60" rx="6" class="box"/>
+          <rect x="778" y="158" width="30" height="30" fill="var(--ink)"/>
+          <rect x="778" y="158" width="15" height="15" fill="var(--muted)"/>
+          <rect x="793" y="173" width="15" height="15" fill="var(--muted)"/>
+          <text x="814" y="170" class="txt sm">E ✓</text>
+          <text x="814" y="184" class="txt sm">ν ✗</text>
+
+          <!-- history -->
+          <rect x="24" y="286" width="852" height="34" rx="8" class="chip"/>
+          <text x="40" y="307" class="txt sm">RUN HISTORY:  ▸ run_2026… E=200k ν=.25 ✓   |   ▸ run_2026… ✗   |   ▸ …</text>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · INPUT FORM -->
+  <section class="slide">
+    <div class="kicker">Component 3</div>
+    <h2>Input form — sections A–F</h2>
+    <p class="sub">A thin editor over the <b>existing</b> <code>TuningConfig</code> / <code>PhaseProps</code> schema and the directive grammar.</p>
+    <div class="cols">
+      <div class="figwrap">
+        <svg viewBox="0 0 380 350" role="img" aria-label="Form sections">
+          <g>
+            <rect x="20" y="14"  width="340" height="40" rx="8" class="box acc"/>
+            <text x="34" y="32" class="txt b">A · Physics / checkpoints</text>
+            <text x="34" y="47" class="txt mut sm">elastic · thermal_cond · thermal_exp · plasticity</text>
+
+            <rect x="20" y="62" width="340" height="46" rx="8" class="box"/>
+            <text x="34" y="80" class="txt b">B · Targets (directives)</text>
+            <text x="34" y="96" class="txt mut sm">free / max / min / target V / range L H  (+ weight)</text>
+
+            <rect x="20" y="116" width="340" height="46" rx="8" class="box"/>
+            <text x="34" y="134" class="txt b">C · Phase props  A / B / AB</text>
+            <text x="34" y="150" class="txt mut sm">MOOSE-native keys, prefilled from defaults or H5</text>
+
+            <rect x="20" y="170" width="340" height="40" rx="8" class="box"/>
+            <text x="34" y="188" class="txt b">D · Tuning ▸</text>
+            <text x="34" y="203" class="txt mut sm">Allen–Cahn · VF · IPOPT · beam · restarts / seed</text>
+
+            <rect x="20" y="218" width="340" height="40" rx="8" class="box"/>
+            <text x="34" y="236" class="txt b">E · Pareto ▸</text>
+            <text x="34" y="251" class="txt mut sm">ρ objective + ε-constraints · pareto_steps</text>
+
+            <rect x="20" y="266" width="340" height="40" rx="8" class="box"/>
+            <text x="34" y="284" class="txt b">F · Validation ▸</text>
+            <text x="34" y="299" class="txt mut sm">FEniCS/MOOSE toggle + per-phase props</text>
+          </g>
+        </svg>
+      </div>
+      <ul class="notes">
+        <li><b>Active-physics gating:</b> only relevant properties appear; isotropic aliases by default, anisotropic + <code>sigY_*</code> behind an "advanced" expander.</li>
+        <li><b>Directives → optimizer:</b> <code>max/min</code> become objective terms, <code>target/range</code> become hard constraints.</li>
+        <li><b>Phase props</b> seed from explicit values, a consolidated HDF5, or built-in defaults.</li>
+        <li><b>Reuse:</b> fields, labels, and typical ranges come straight from <code>TuningConfig</code>.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 5 · TWO OPTIMIZERS -->
+  <section class="slide">
+    <div class="kicker">Component 4</div>
+    <h2>Two optimizers, one mode switch</h2>
+    <p class="sub">A top-level toggle re-renders the targets, tuning, and results view; everything else is shared.</p>
+    <div class="cols">
+      <div class="figwrap">
+        <svg viewBox="0 0 380 300" role="img" aria-label="Single point versus Pareto">
+          <rect x="16" y="24" width="164" height="250" rx="10" class="box acc"/>
+          <text x="98" y="48" text-anchor="middle" class="txt b">Single-point</text>
+          <text x="98" y="70" text-anchor="middle" class="txt mut sm">hit a target</text>
+          <circle cx="98" cy="150" r="7" fill="var(--accent)" stroke="var(--ink)"/>
+          <rect x="70" y="176" width="56" height="14" rx="4" class="chip"/>
+          <text x="98" y="187" text-anchor="middle" class="txt sm mut">target ✕</text>
+          <text x="98" y="224" text-anchor="middle" class="txt sm">weights · vf_min/max</text>
+          <text x="98" y="242" text-anchor="middle" class="txt sm">+ plasticity</text>
+          <text x="98" y="260" text-anchor="middle" class="txt sm mut">restarts → best</text>
+
+          <rect x="200" y="24" width="164" height="250" rx="10" class="box"/>
+          <text x="282" y="48" text-anchor="middle" class="txt b">Pareto (ε-constraint)</text>
+          <text x="282" y="70" text-anchor="middle" class="txt mut sm">trade-off front</text>
+          <line x1="224" y1="200" x2="224" y2="96" stroke="var(--muted)"/>
+          <line x1="224" y1="200" x2="344" y2="200" stroke="var(--muted)"/>
+          <path d="M232,190 Q260,120 340,104" fill="none" stroke="var(--accent)" stroke-width="2"/>
+          <circle cx="240" cy="178" r="3.5" fill="var(--accent)"/><circle cx="262" cy="150" r="3.5" fill="var(--accent)"/>
+          <circle cx="292" cy="126" r="3.5" fill="var(--accent)"/><circle cx="326" cy="108" r="3.5" fill="var(--accent)"/>
+          <circle cx="270" cy="185" r="3" fill="var(--muted)"/><circle cx="300" cy="165" r="3" fill="var(--muted)"/>
+          <text x="282" y="238" text-anchor="middle" class="txt sm">ρ objective + ε-sweep</text>
+          <text x="282" y="256" text-anchor="middle" class="txt sm mut">pareto_steps · ranked front</text>
+        </svg>
+      </div>
+      <ul class="notes">
+        <li><b>Single-point</b> (<code>run_inverse_design_fm_multi_ac.py</code>): one design; supports weights, VF bounds, and plasticity.</li>
+        <li><b>Pareto</b> (<code>run_pareto_epsilon_fm_multi_ac.py</code>): ρ as primary objective, other targets swept as ε-constraints; excludes plasticity.</li>
+        <li><b>Different defaults</b> surfaced in the form (e.g. <code>target_tol</code>, <code>restarts</code>).</li>
+        <li><b>Shared:</b> physics, phase props, and validation sections.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 6 · RUNNER -->
+  <section class="slide">
+    <div class="kicker">Component 5 · open decision <span class="tag open">execution</span></div>
+    <h2>Execution model — the <code>Runner</code> interface</h2>
+    <p class="sub">One interface, interchangeable backends, so the execution choice is not baked in.</p>
+    <div class="cols">
+      <div class="figwrap">
+        <svg viewBox="0 0 400 320" role="img" aria-label="Runner interface and backends">
+          <rect x="120" y="16" width="160" height="60" rx="10" class="box acc"/>
+          <text x="200" y="40" text-anchor="middle" class="txt b">Runner</text>
+          <text x="200" y="58" text-anchor="middle" class="txt mut sm">submit·stream·result·cancel</text>
+
+          <rect x="18" y="150" width="118" height="70" rx="9" class="box"/>
+          <text x="77" y="174" text-anchor="middle" class="txt b">Subprocess</text>
+          <text x="77" y="190" text-anchor="middle" class="txt mut sm">runs the CLI</text>
+          <text x="77" y="206" text-anchor="middle" class="txt sm" fill="var(--ok)">default · v1</text>
+
+          <rect x="141" y="150" width="118" height="70" rx="9" class="box"/>
+          <text x="200" y="174" text-anchor="middle" class="txt b">In-process</text>
+          <text x="200" y="190" text-anchor="middle" class="txt mut sm">imports package</text>
+          <text x="200" y="206" text-anchor="middle" class="txt mut sm">richest events</text>
+
+          <rect x="264" y="150" width="118" height="70" rx="9" class="box"/>
+          <text x="323" y="174" text-anchor="middle" class="txt b">compogen</text>
+          <text x="323" y="190" text-anchor="middle" class="txt mut sm">HPC / MCP</text>
+          <text x="323" y="206" text-anchor="middle" class="txt mut sm">logbook · scale</text>
+
+          <path class="flow" d="M170,76 C120,110 90,120 80,149"/>
+          <path class="flow" d="M200,76 L200,149"/>
+          <path class="flow" d="M230,76 C280,110 312,120 320,149"/>
+
+          <rect x="120" y="262" width="160" height="44" rx="9" class="chip"/>
+          <text x="200" y="282" text-anchor="middle" class="txt b">Optimizer + artifacts</text>
+          <text x="200" y="297" text-anchor="middle" class="txt mut sm">same results, any backend</text>
+          <path class="flow" d="M77,220 C90,245 150,255 165,262"/>
+          <path class="flow" d="M200,220 L200,261"/>
+          <path class="flow" d="M323,220 C312,245 250,255 235,262"/>
+        </svg>
+      </div>
+      <ul class="notes">
+        <li><b>Subprocess</b> (recommended v1): builds argv for either script; zero optimizer changes; covers both modes today.</li>
+        <li><b>In-process:</b> imports <code>utils.optimization</code> for structured per-iteration progress; tighter coupling.</li>
+        <li><b>compogen HPC/MCP:</b> reuses staging, logbook, and cluster scale — needs a new Pareto <code>@tool</code> for parity.</li>
+        <li><b>Same schema &amp; artifacts</b> across all three — the GUI code doesn't change when the backend does.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 7 · DESIGN SPACE -->
+  <section class="slide">
+    <div class="kicker">Component 6 · centerpiece</div>
+    <h2>Design-space view — hover reveals the mask</h2>
+    <p class="sub">Every candidate design is a point in property space; hovering shows its microstructure and how well it meets the criteria.</p>
+    <div class="cols">
+      <div class="figwrap">
+        <svg viewBox="0 0 400 330" role="img" aria-label="Design space scatter with hover popover">
+          <line x1="46" y1="284" x2="46" y2="30" stroke="var(--muted)"/>
+          <line x1="46" y1="284" x2="366" y2="284" stroke="var(--muted)"/>
+          <text x="30" y="40" class="txt mut sm">Eᵧ</text>
+          <text x="360" y="304" class="txt mut sm">ρ</text>
+          <!-- front line -->
+          <path d="M70,250 Q150,140 330,96" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="1 0"/>
+          <!-- rank0 points -->
+          <circle cx="78" cy="244" r="5" fill="var(--a)"/><circle cx="120" cy="196" r="5" fill="var(--a)"/>
+          <circle cx="180" cy="150" r="5" fill="var(--a)"/><circle cx="250" cy="118" r="5" fill="var(--a)"/>
+          <circle cx="320" cy="98" r="5" fill="var(--a)"/>
+          <!-- dominated -->
+          <circle cx="150" cy="235" r="4" fill="none" stroke="var(--muted)"/>
+          <circle cx="210" cy="205" r="4" fill="none" stroke="var(--muted)"/>
+          <circle cx="280" cy="170" r="4" fill="none" stroke="var(--muted)"/>
+          <!-- target marker -->
+          <path d="M300,150 l6,6 m0,-6 l-6,6" stroke="var(--warn)" stroke-width="2"/>
+          <rect x="292" y="138" width="30" height="24" rx="4" fill="none" stroke="var(--warn)" stroke-dasharray="3 2"/>
+          <!-- hovered point -->
+          <circle cx="180" cy="150" r="8" fill="var(--accent)" stroke="var(--ink)" stroke-width="1.5"/>
+          <!-- popover -->
+          <rect x="196" y="60" width="150" height="96" rx="9" class="box" style="filter:none"/>
+          <rect x="206" y="72" width="52" height="52" fill="var(--ink)"/>
+          <rect x="206" y="72" width="26" height="26" fill="var(--muted)"/>
+          <rect x="232" y="98" width="26" height="26" fill="var(--muted)"/>
+          <text x="270" y="86" class="txt sm b">meets 2/3</text>
+          <text x="270" y="102" class="txt sm" fill="var(--ok)">E ✓</text>
+          <text x="270" y="116" class="txt sm" fill="var(--ok)">ρ ✓</text>
+          <text x="270" y="130" class="txt sm" fill="var(--warn)">ν ✗ 4.1%</text>
+          <path d="M196,120 L184,146" stroke="var(--line)"/>
+        </svg>
+        <div class="legend">
+          <span><span class="sw" style="background:var(--a)"></span> Pareto front (rank 0)</span>
+          <span><span class="sw" style="background:transparent;border:1px solid var(--muted)"></span> dominated</span>
+          <span><span class="sw" style="background:var(--warn)"></span> target</span>
+        </div>
+      </div>
+      <ul class="notes">
+        <li><b>Points:</b> Pareto solutions (colored by rank, feasibility) or single-point restarts, from the run's <code>.npz</code>.</li>
+        <li><b>Axis pickers:</b> choose any two effective properties (E vs ρ, κ vs α, …).</li>
+        <li><b>Hover → popover:</b> the 128×128 <b>binary mask</b> + a per-criterion ✓/✗ with fractional error.</li>
+        <li><b>Click → detail:</b> full mask, achieved-vs-target table, convergence curve, validation.</li>
+        <li><b>Needs an interactive chart</b> (Plotly/Bokeh) — not the CLI's static PNG.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 8 · LIVE PROGRESS -->
+  <section class="slide">
+    <div class="kicker">Component 7</div>
+    <h2>Live progress + logs</h2>
+    <p class="sub">Watch the solve as it happens; points populate the design space as they are produced.</p>
+    <div class="cols">
+      <div class="figwrap">
+        <svg viewBox="0 0 380 300" role="img" aria-label="Progress and stage tracker">
+          <rect x="20" y="20" width="340" height="120" rx="8" class="box"/>
+          <text x="34" y="42" class="txt b">log stream</text>
+          <text x="34" y="64" class="txt mut sm">IPOPT iter 40   obj=1.2e-2  viol=3e-4</text>
+          <text x="34" y="82" class="txt mut sm">IPOPT iter 41   obj=9.8e-3  viol=1e-4</text>
+          <text x="34" y="100" class="txt mut sm">IPOPT iter 42   obj=9.1e-3  viol=8e-5</text>
+          <text x="34" y="118" class="txt sm" fill="var(--accent)">▍</text>
+
+          <text x="20" y="176" class="txt b">Pareto stage tracker</text>
+          <g>
+            <circle cx="46" cy="212" r="12" fill="var(--ok)"/><text x="46" y="216" text-anchor="middle" class="txt sm" fill="#fff">0</text>
+            <circle cx="140" cy="212" r="12" fill="var(--ok)"/><text x="140" y="216" text-anchor="middle" class="txt sm" fill="#fff">1</text>
+            <circle cx="234" cy="212" r="12" fill="var(--accent)"/><text x="234" y="216" text-anchor="middle" class="txt sm" fill="#fff">2</text>
+            <circle cx="328" cy="212" r="12" class="box"/><text x="328" y="216" text-anchor="middle" class="txt sm mut">3</text>
+            <line x1="58" y1="212" x2="128" y2="212" stroke="var(--ok)" stroke-width="2"/>
+            <line x1="152" y1="212" x2="222" y2="212" stroke="var(--ok)" stroke-width="2"/>
+            <line x1="246" y1="212" x2="316" y2="212" stroke="var(--line)" stroke-width="2"/>
+          </g>
+          <text x="46" y="244" text-anchor="middle" class="txt sm mut">feasibility</text>
+          <text x="140" y="244" text-anchor="middle" class="txt sm mut">payoff</text>
+          <text x="234" y="244" text-anchor="middle" class="txt sm mut">sweep</text>
+          <text x="328" y="244" text-anchor="middle" class="txt sm mut">rank</text>
+        </svg>
+      </div>
+      <ul class="notes">
+        <li><b>Subprocess backend:</b> tail stdout — IPOPT prints per-iteration status (verbosity via <code>ipopt_print</code>).</li>
+        <li><b>In-process / compogen:</b> forward structured events instead of parsing text.</li>
+        <li><b>Progress indicator:</b> single-point shows iterations; Pareto shows explicit stages 0–3.</li>
+        <li><b>Incremental plot:</b> designs appear in the scatter as each restart / grid-point finishes.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 9 · VALIDATION -->
+  <section class="slide">
+    <div class="kicker">Component 8</div>
+    <h2>FEniCS / MOOSE validation</h2>
+    <p class="sub">Optional ground-truth PDE check, shown beside the surrogate prediction in the detail panel.</p>
+    <div class="cols">
+      <div class="figwrap">
+        <svg viewBox="0 0 380 300" role="img" aria-label="NN versus ground truth table">
+          <rect x="20" y="24" width="340" height="252" rx="10" class="box"/>
+          <text x="36" y="50" class="txt b">Design detail · validation</text>
+          <line x1="36" y1="64" x2="344" y2="64" stroke="var(--line)"/>
+          <text x="40"  y="88" class="txt sm mut">property</text>
+          <text x="170" y="88" class="txt sm mut">NN (EffPropNet)</text>
+          <text x="290" y="88" class="txt sm mut">FEniCS/MOOSE</text>
+          <line x1="36" y1="98" x2="344" y2="98" stroke="var(--line)" stroke-dasharray="3 3"/>
+
+          <text x="40"  y="124" class="txt sm">E</text>
+          <text x="170" y="124" class="txt sm">201.3 GPa</text>
+          <text x="290" y="124" class="txt sm">199.7 GPa</text>
+          <text x="40"  y="152" class="txt sm">ν</text>
+          <text x="170" y="152" class="txt sm">0.244</text>
+          <text x="290" y="152" class="txt sm">0.251</text>
+          <text x="40"  y="180" class="txt sm">κ</text>
+          <text x="170" y="180" class="txt sm">168 W/mK</text>
+          <text x="290" y="180" class="txt sm">171 W/mK</text>
+
+          <line x1="36" y1="196" x2="344" y2="196" stroke="var(--line)"/>
+          <text x="40" y="222" class="txt sm b">max error</text>
+          <text x="290" y="222" class="txt sm b" fill="var(--ok)">2.9%</text>
+          <rect x="36" y="238" width="308" height="24" rx="6" class="chip"/>
+          <text x="50" y="254" class="txt sm mut">skipped gracefully if the solver env is unavailable</text>
+        </svg>
+      </div>
+      <ul class="notes">
+        <li><b>Toggle in section F;</b> per-phase <code>fenics_*</code> props or an H5 source, plus the conda env name.</li>
+        <li><b>Reads existing artifacts:</b> single-point <code>fenics_*_results.npz</code> / the CLI's third PNG panel; compogen path uses the MOOSE table.</li>
+        <li><b>Side-by-side</b> NN vs ground-truth with per-property error.</li>
+        <li><b>Graceful fallback:</b> a clear "validation unavailable" notice when the solver is missing.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 10 · HISTORY -->
+  <section class="slide">
+    <div class="kicker">Component 9</div>
+    <h2>Run history &amp; compare</h2>
+    <p class="sub">Every run is persisted; reload a run into the plot, or compare designs across runs.</p>
+    <div class="cols">
+      <div class="figwrap">
+        <svg viewBox="0 0 380 300" role="img" aria-label="History and compare view">
+          <rect x="16" y="20" width="130" height="260" rx="9" class="box"/>
+          <text x="30" y="42" class="txt b">history</text>
+          <rect x="26" y="54" width="110" height="34" rx="6" class="box acc"/>
+          <text x="36" y="70" class="txt sm">run_2026… ✓</text>
+          <text x="36" y="83" class="txt sm mut">E=200k ν=.25</text>
+          <rect x="26" y="94" width="110" height="34" rx="6" class="chip"/>
+          <text x="36" y="110" class="txt sm">run_2026… ✗</text>
+          <rect x="26" y="134" width="110" height="34" rx="6" class="chip"/>
+          <text x="36" y="150" class="txt sm">run_2026… ✓</text>
+
+          <text x="170" y="42" class="txt b">compare</text>
+          <rect x="170" y="54" width="88" height="88" rx="8" class="box"/>
+          <rect x="182" y="66" width="64" height="64" fill="var(--ink)"/>
+          <rect x="182" y="66" width="32" height="32" fill="var(--muted)"/>
+          <rect x="214" y="98" width="32" height="32" fill="var(--muted)"/>
+          <rect x="272" y="54" width="88" height="88" rx="8" class="box"/>
+          <rect x="284" y="66" width="64" height="64" fill="var(--ink)"/>
+          <rect x="316" y="66" width="32" height="32" fill="var(--muted)"/>
+          <rect x="284" y="98" width="32" height="32" fill="var(--muted)"/>
+          <text x="214" y="158" text-anchor="middle" class="txt sm mut">run A</text>
+          <text x="316" y="158" text-anchor="middle" class="txt sm mut">run B</text>
+
+          <line x1="180" y1="256" x2="180" y2="180" stroke="var(--muted)"/>
+          <line x1="180" y1="256" x2="352" y2="256" stroke="var(--muted)"/>
+          <path d="M186,250 Q220,210 350,192" fill="none" stroke="var(--a)" stroke-width="2"/>
+          <path d="M186,252 Q230,224 350,214" fill="none" stroke="var(--b)" stroke-width="2"/>
+          <text x="250" y="278" text-anchor="middle" class="txt sm mut">convergence overlay</text>
+        </svg>
+      </div>
+      <ul class="notes">
+        <li><b>Persist:</b> config JSON + artifact paths + status + achieved props + timestamp in a runs directory.</li>
+        <li><b>Or reuse compogen's markdown logbook</b> via <code>read_design_logbook</code> / <code>annotate_last_run</code>.</li>
+        <li><b>Reload:</b> a past run drops back into the design-space plot.</li>
+        <li><b>Compare:</b> pin designs from multiple runs — masks side-by-side, tables, convergence overlay.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 11 · FRAMEWORK + OPEN -->
+  <section class="slide">
+    <div class="kicker">Component 10 · open decision <span class="tag open">framework</span></div>
+    <h2>Framework choice &amp; open decisions</h2>
+    <p class="sub">Recommendation: a form-first Streamlit GUI plus a Chainlit chat entry point sharing one <code>Runner</code>.</p>
+    <div class="cols">
+      <div class="figwrap">
+        <svg viewBox="0 0 380 300" role="img" aria-label="Framework options">
+          <rect x="20" y="30" width="164" height="52" rx="9" class="box acc"/>
+          <text x="102" y="52" text-anchor="middle" class="txt b">Streamlit</text>
+          <text x="102" y="69" text-anchor="middle" class="txt mut sm">form-first · recommended</text>
+
+          <rect x="196" y="30" width="164" height="52" rx="9" class="box acc"/>
+          <text x="278" y="52" text-anchor="middle" class="txt b">Chainlit</text>
+          <text x="278" y="69" text-anchor="middle" class="txt mut sm">chat · HPC/MCP</text>
+
+          <rect x="20" y="96" width="164" height="42" rx="9" class="box"/>
+          <text x="102" y="122" text-anchor="middle" class="txt mut sm">Gradio · FastAPI+React</text>
+
+          <rect x="120" y="176" width="140" height="50" rx="10" class="box"/>
+          <text x="190" y="200" text-anchor="middle" class="txt b">shared Runner</text>
+          <text x="190" y="216" text-anchor="middle" class="txt mut sm">+ shared schema</text>
+
+          <path class="flow" d="M102,82 L175,175"/>
+          <path class="flow" d="M278,82 L205,175"/>
+          <text x="190" y="262" text-anchor="middle" class="txt sm mut">one execution layer, two front-ends</text>
+        </svg>
+      </div>
+      <ul class="notes">
+        <li><b>Interactive hover</b> rules out static matplotlib — favors Streamlit/Gradio/web; Chainlit needs a custom element.</li>
+        <li><b>Not a fork:</b> both surfaces share the <code>Runner</code> and input schema.</li>
+        <li class="opn"><b>Open 1 — framework:</b> Streamlit + Chainlit, or a single surface?</li>
+        <li class="opn"><b>Open 2 — execution default:</b> Subprocess (v1) or start from compogen/HPC?</li>
+        <li class="opn"><b>Open 3 — Pareto via compogen:</b> new <code>pareto_epsilon_composite</code> tool in v1, or defer?</li>
+      </ul>
+    </div>
+  </section>
+
+</main>
+
+<footer class="nav">
+  <button class="btn ghost" id="prev">‹ Prev</button>
+  <div class="dots" id="dots"></div>
+  <button class="btn" id="next">Next ›</button>
+</footer>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const dotsWrap = document.getElementById('dots');
+  const prev = document.getElementById('prev');
+  const next = document.getElementById('next');
+  const cur = document.getElementById('cur');
+  document.getElementById('tot').textContent = slides.length;
+  let i = 0;
+
+  slides.forEach((_, k) => {
+    const b = document.createElement('button');
+    b.className = 'dot' + (k === 0 ? ' on' : '');
+    b.setAttribute('aria-label', 'Go to slide ' + (k + 1));
+    b.addEventListener('click', () => go(k));
+    dotsWrap.appendChild(b);
+  });
+  const dots = Array.from(dotsWrap.children);
+
+  function go(n){
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, k) => s.classList.toggle('active', k === i));
+    dots.forEach((d, k) => d.classList.toggle('on', k === i));
+    cur.textContent = i + 1;
+    prev.disabled = i === 0;
+    next.disabled = i === slides.length - 1;
+  }
+  prev.addEventListener('click', () => go(i - 1));
+  next.addEventListener('click', () => go(i + 1));
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'PageDown') go(i + 1);
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') go(i - 1);
+    else if (e.key === 'Home') go(0);
+    else if (e.key === 'End') go(slides.length - 1);
+  });
+  go(0);
+</script>
+</body>
+</html>

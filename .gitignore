@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.py[cod]
+
+# Machine-specific; config.example.toml is the committed template
+config.toml
+
+# Machine-specific absolute paths; regenerate per machine with:
+#   python scripts/probe_solver_env.py --env cenv
+env/*.activation.json
+
+# Run artifacts. Scoped to output locations rather than repo-wide, so that a
+# screenshot committed under docs/ is not silently swallowed.
+runs/
+plots/
+*.npz

@@ -1,0 +1,31 @@
+# Solver environment for the AI4NS inverse-design optimizer.
+#
+# This file exists because amit_AI4NS/pyproject.toml and requirements.txt are both
+# ~292-line `pip freeze` dumps of an unrelated environment (open-webui, langchain,
+# chromadb, faster-whisper, pytube...) and NEITHER lists cyipopt. Do not build from them.
+#
+# The list below is the real transitive closure of the two optimizer entry points:
+#   run_inverse_design_fm_multi_ac.py, run_pareto_epsilon_fm_multi_ac.py
+#
+# Conda (not pip) is mandatory: cyipopt has never published a wheel for any platform
+# or release -- PyPI serves an sdist only, and building it needs a compiler plus a
+# pre-existing IPOPT + MUMPS/HSL installation.
+#
+#   conda env create -f env/cenv.yml
+#
+name: cenv
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11        # forced by ai4ns requires-python = ">=3.11,<3.12"
+  - cyipopt            # NLP solver; utils/optimization/solver.py:188 cyipopt.Problem
+  - pytorch-cpu>=2.2   # CPU build: device probe falls back cleanly, no --device flag.
+                       # Swap to pytorch-gpu>=2.2 only if profiling justifies ~2.5 GB more.
+  - numpy
+  - scipy
+  - h5py               # hard import in utils/data.py:11, pulled in by `import utils`
+  - matplotlib         # run_inverse_design_fm_multi_ac.py:47
+
+# Deliberately omitted -- import-guarded and Aurora/Polaris-only:
+#   mpi4py (utils/distributed.py:23-25)
+#   intel_extension_for_pytorch, oneccl_bindings_for_pytorch (utils/device.py:13-24)

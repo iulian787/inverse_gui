@@ -1,0 +1,26 @@
+[project]
+name = "inverse-gui"
+version = "0.1.0"
+description = "Form-first GUI over the AI4NS inverse-design optimizer"
+requires-python = ">=3.12"
+
+# The GUI never solves -- it builds argv, streams stdout, and reads .npz artifacts.
+# torch and cyipopt live in the separate conda `cenv` (see env/cenv.yml) and are
+# reached across a subprocess boundary, so nothing here needs a compiler.
+#
+# streamlit already pulls pandas, pyarrow, pillow, altair and watchdog, which cover
+# the run-history table, hover-mask encoding, and artifact file watching.
+dependencies = [
+    "streamlit",
+    "plotly",
+    "numpy",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "psutil",   # process-tree cleanup on cancel, as a portable killpg backstop
+]
+
+[tool.uv]
+package = false

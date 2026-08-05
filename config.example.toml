@@ -1,0 +1,63 @@
+# Copy to config.toml (git-ignored) and adjust. Every key can also be overridden by an
+# environment variable: INVERSE_GUI_<SECTION>_<KEY>, e.g. INVERSE_GUI_SOLVER_PYTHON.
+# Env vars win over the file, so HPC and CI can configure without editing anything.
+#
+# Precedence: built-in defaults < config.toml < INVERSE_GUI_* env vars < settings pane.
+
+[paths]
+# Resolved relative to this file's directory when not absolute, so a checkout that
+# sits next to amit_AI4NS works with no edits on any machine.
+ai4ns_repo = "../amit_AI4NS"
+runs_dir   = "./runs"
+# Optional; defaults to <ai4ns_repo>/models/fm_multi_store
+ckpt_dir   = ""
+
+[scripts]
+single_point = "run_inverse_design_fm_multi_ac.py"
+pareto       = "run_pareto_epsilon_fm_multi_ac.py"
+# Pareto runs write NO png -- plotting is a separate step upstream. The GUI renders
+# the front client-side with Plotly instead, so this is only a fallback.
+pareto_plot  = "plots/plot_pareto_results.py"
+
+[solver]
+# Explicit interpreter path. Leave empty to auto-discover once at startup via
+#   <conda_exe> run -n <conda_env> python -c "import sys; print(sys.executable)"
+# and cache the result. Set it explicitly on HPC, where conda may need `module load`.
+python    = ""
+# Leave empty to search $CONDA_EXE, then PATH, then common install prefixes.
+conda_exe = ""
+conda_env = "cenv"
+
+# How to read the child's stdout.
+#   pty          - required for the live IPOPT iteration table. That table is written
+#                  by IPOPT's C++ Journalist to C-level stdout; python -u and
+#                  PYTHONUNBUFFERED only affect CPython's io layer, not glibc's FILE*
+#                  buffering inside libipopt.so. Against a pipe it block-buffers at 4 KB.
+#   pipe_stdbuf  - fallback: stdbuf -oL -eL. Cheaper, but defeated if a library calls
+#                  setvbuf on itself after startup.
+#   pipe         - diagnostic only; the log pane will appear frozen mid-solve.
+stream_mode = "pty"
+
+# "cpu" sets CUDA_VISIBLE_DEVICES="" in the child; "auto" leaves it unset and lets the
+# optimizer's try/except device probe decide. There is no --device flag upstream.
+device  = "cpu"
+# IPOPT, MUMPS and torch each default to every core. Three of them plus Streamlit makes
+# the UI unresponsive during a solve.
+threads = 4
+
+[fenics]
+# Default OFF, and the GUI greys out the toggle until the Doctor panel confirms the env
+# exists. Upstream's "skipped gracefully" claim is false: run_fenics_validation is called
+# with no try/except (:701-726) and shells `conda run` (:283). A missing env raises
+# FileNotFoundError AFTER the solve finishes but BEFORE plot_results (:728) -- destroying
+# a completed run's artifacts.
+enabled   = false
+conda_env = "fenics_env"
+
+[checkpoints]
+# At least one is mandatory; argparse hard-fails otherwise (:542-544). ~50-200 MB each.
+# Not present anywhere on disk yet -- the .pt files in the sibling AI4NS/ repo are a
+# different generation (ResUNet, not EffPropNet/FmMultiAdapter) and will not load.
+elastic              = ""
+thermal_conductivity = ""
+thermal_expansion    = ""

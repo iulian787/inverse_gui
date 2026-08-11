@@ -88,6 +88,19 @@ def test_removing_a_checkpoint_blocks_rather_than_discards(app):
     assert next(b for b in app.button if 'Launch' in b.label).disabled
 
 
+def test_set_reference_to_target_uses_widget_callback(app):
+    """The shortcut must not mutate an already-instantiated number input."""
+    app.run()
+    app.text_input(key='ckpt.elastic').set_value('fake.pt').run()
+    app.selectbox(key='dir.E.mode').set_value('target').run()
+    app.number_input(key='dir.E.value').set_value(123456.0).run()
+
+    next(b for b in app.button if b.key == 'dir.E.reffix').click().run()
+
+    assert not app.exception, [str(e) for e in app.exception]
+    assert app.number_input(key='dir.E.ref').value == pytest.approx(123456.0)
+
+
 def test_mode_toggle_switches_defaults(app):
     """target_tol is 0.001 single-point and 0.02 Pareto; the toggle must follow."""
     app.run()

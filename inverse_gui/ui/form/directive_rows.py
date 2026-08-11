@@ -141,9 +141,16 @@ def _row(rc: RunConfig, prop: str, issues_by_field: dict, help_text: str = '') -
             format=fmt, key=f'dir.{prop}.ref', min_value=0.0,
         )
         if mode in (Mode.TARGET, Mode.RANGE) and value:
-            if st.button(f'Set to target ({value:{fmt[1:]}})', key=f'dir.{prop}.reffix'):
-                ref = float(value)
-                st.session_state[f'dir.{prop}.ref'] = ref
+            # Widget callbacks run before Streamlit starts the next script render,
+            # which is the only safe time to update another widget's state. Doing
+            # this in ``if st.button(...)`` runs after the number_input above has
+            # already been instantiated and raises StreamlitAPIException.
+            st.button(
+                f'Set to target ({value:{fmt[1:]}})',
+                key=f'dir.{prop}.reffix',
+                on_click=_set_widget_value,
+                args=(f'dir.{prop}.ref', float(value)),
+            )
         if ref == default_ref:
             ref = None
 
@@ -155,3 +162,8 @@ def _row(rc: RunConfig, prop: str, issues_by_field: dict, help_text: str = '') -
                    else f'🟡 {issue.message}')
     for issue in issues_by_field.get(f'ref.{prop}', []):
         st.caption(f'🟡 {issue.message} — {issue.remedy}')
+
+
+def _set_widget_value(key: str, value: float) -> None:
+    """Update widget state from Streamlit's pre-render callback phase."""
+    st.session_state[key] = value

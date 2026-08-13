@@ -43,8 +43,14 @@ def render(cfg) -> None:
     st.caption(f'Config: `{cfg.source}`')
 
 
-def fenics_available(cfg) -> bool:
+def fenics_status(cfg) -> tuple[bool, str]:
+    """(available, why-not) for gating section F.
+
+    The reason has to travel with the verdict: "not built" and "built, but the
+    upstream yml forgot dolfinx_mpc" are both a disabled toggle, and they need
+    different commands to fix.
+    """
     for c in checks(cfg):
         if c.name == 'FEniCS env':
-            return c.ok
-    return False
+            return c.ok, ('' if c.ok else f'{c.detail}\n\n{c.remedy}'.strip())
+    return False, 'no FEniCS check ran'

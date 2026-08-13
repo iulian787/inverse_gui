@@ -55,9 +55,15 @@ enabled   = false
 conda_env = "fenics_env"
 
 [checkpoints]
-# At least one is mandatory; argparse hard-fails otherwise (:542-544). ~50-200 MB each.
-# Not present anywhere on disk yet -- the .pt files in the sibling AI4NS/ repo are a
-# different generation (ResUNet, not EffPropNet/FmMultiAdapter) and will not load.
+# At least one is mandatory; argparse hard-fails otherwise (:542-544). ~137 MB each,
+# not shipped in either repo -- obtain them separately and drop them in
+# <ai4ns_repo>/models/fm_multi_store/. Set the FULL path here: ckpt_dir above only
+# feeds the placeholder text in form section A, it is not a resolution root.
+# The form is pre-filled from these, so this is configured once, not per run.
+# Which families you set decides which property targets the form offers.
+# What will NOT load: the .pt files in the sibling AI4NS/ repo (ResUNet, a different
+# generation), and plasticity_yield_*.pt -- neither script has a plasticity flag.
 elastic              = ""
+# e.g. "/abs/…/models/fm_multi_store/elastic_effpropnet_silu_f64_128_256_6554_fmmulti_epoch860.pt"
 thermal_conductivity = ""
 thermal_expansion    = ""

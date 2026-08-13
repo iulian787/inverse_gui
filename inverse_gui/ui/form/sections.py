@@ -17,7 +17,8 @@ from ...domain.schema import (ALPHA_FOR_Y_CHOICES, MU_STRATEGY_CHOICES,
 from . import directive_rows
 
 
-def render(rc: RunConfig, cfg, issues_by_field: dict, *, fenics_available: bool) -> None:
+def render(rc: RunConfig, cfg, issues_by_field: dict, *, fenics_available: bool,
+           fenics_note: str = '') -> None:
     _section_a(rc, cfg, issues_by_field)
     with st.expander('B · Property targets', expanded=True):
         directive_rows.render(rc, issues_by_field)
@@ -29,7 +30,7 @@ def render(rc: RunConfig, cfg, issues_by_field: dict, *, fenics_available: bool)
         with st.expander('E · Pareto sweep', expanded=True):
             _section_e(rc, issues_by_field)
     with st.expander('F · Validation', expanded=False):
-        _section_f(rc, cfg, fenics_available)
+        _section_f(rc, cfg, fenics_available, fenics_note)
 
 
 # ---------------------------------------------------------------- A. checkpoints
@@ -259,17 +260,19 @@ def _section_e(rc: RunConfig, issues_by_field: dict) -> None:
 
 # ---------------------------------------------------------------- F. validation
 
-def _section_f(rc: RunConfig, cfg, fenics_available: bool) -> None:
+def _section_f(rc: RunConfig, cfg, fenics_available: bool,
+               fenics_note: str = '') -> None:
     if not fenics_available:
+        # The note carries the doctor's verdict verbatim, because "env missing" and
+        # "env built but unimportable" need different commands -- and the second
+        # case is the one the upstream environment_fenics.yml actually produces.
         st.info(
-            f'FEniCS validation is unavailable: the conda env '
-            f'`{rc.fenics.conda_env}` was not found.\n\n'
+            f'FEniCS validation is unavailable for `{rc.fenics.conda_env}`.\n\n'
+            f'{fenics_note}\n\n'
             'This toggle stays disabled deliberately. Upstream calls the validator '
             'with no try/except, after the solve finishes but **before** artifacts '
-            'are written — so a missing env destroys a completed run.',
+            'are written — so a broken env destroys a completed run.',
             icon='🟡')
-        st.code('conda env create -f '
-                '<ai4ns>/fenics_validation/environment_fenics.yml', language='bash')
         rc.fenics.validate = False
         return
 

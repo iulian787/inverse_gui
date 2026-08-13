@@ -10,12 +10,15 @@ optimizer CLIs, launches them, streams their output live, and plots the resultin
 ```bash
 ./scripts/setup.sh                       # builds .venv and cenv, idempotent
 .venv/bin/streamlit run app.py
-.venv/bin/python -m pytest tests/ -q     # ~143 tests, ~30s
+.venv/bin/python -m pytest tests/ -q     # ~162 tests, ~38s
 ```
 
-Working: form (sections A–F), physics gating, validation, cost estimate, launch/stream/cancel, reattach,
-design-space scatter with click-to-inspect, run history list-and-reload, preflight doctor.
-Not built: cross-run compare, FEniCS validation panel (gated off — the env does not exist).
+Working, **against the real optimizer** — the checkpoints are on disk now and a single-point solve has run
+end to end from the GUI: form (sections A–F), physics gating, validation, cost estimate,
+launch/stream/cancel, reattach, design-space scatter with click-to-inspect, run history list-and-reload,
+preflight doctor.
+Not built: cross-run compare, FEniCS validation panel (gated off — `fenics_env` exists but cannot import
+the upstream validator; see below).
 
 ## Layering — the one rule that matters
 
@@ -43,7 +46,7 @@ mid-run, leaving a live optimizer with no Stop button.
 |---|---|---|---|---|
 | `.venv` | uv | 3.12 | `inverse_gui/.venv` | the GUI. Never solves. |
 | `cenv` | conda-forge | 3.11 | `../envs/cenv` (big disk) | the optimizer |
-| `fenics_env` | conda-forge | 3.11 | not built | optional PDE validation |
+| `fenics_env` | conda-forge | 3.11 | `../envs/fenics_env` (big disk) | optional PDE validation; built, incomplete |
 
 **Why the solver env must be conda:** `cyipopt` has never published a wheel — PyPI serves an sdist only,
 for every release and platform. Building it needs a compiler plus a pre-existing IPOPT + MUMPS/HSL.
@@ -57,6 +60,19 @@ not conda in the parent env. This does foreclose the deck's in-process backend; 
 `env/cenv.yml` replaces the upstream dependency files: `amit_AI4NS/pyproject.toml` and `requirements.txt`
 are both ~292-line `pip freeze` dumps (open-webui, langchain, chromadb, pytube) and **neither lists
 cyipopt**. Never build an environment from them.
+
+**`environment_fenics.yml` is incomplete the same way.** `fenics_env` is built and is a working dolfinx
+0.11 environment, but the upstream validator will not import in it: `fenics_validation/mesh.py:7` needs
+`dolfinx_mpc` (periodic BCs, all four solvers) at package level and `output.py:7` needs `pandas`, and the
+yml lists neither. Fix with `conda install -n fenics_env -c conda-forge dolfinx_mpc pandas`;
+`setup.sh --fenics` now does this and verifies by importing `fenics_validation.validate`, not `dolfinx`.
+
+Because of that, the `FEniCS env` preflight check **probes the import** (`conda run -n <env> python -c
+'import fenics_validation.validate'`, cwd = the ai4ns root) instead of grepping `conda env list` for the
+name. A name-only check is a false green here, and the cost of a false green is one completed solve —
+validation runs after the solve and before artifacts are written, with no try/except upstream.
+`tests/test_fenics_env.py` covers name resolution, importability, and conda's reachability from the
+*child's* PATH separately; the real-env tests skip when `fenics_env` is absent.
 
 ## Launching the optimizer — three non-obvious constraints
 
@@ -94,21 +110,45 @@ Each of these cost real debugging time; the comment in the code names the failur
 - **Selection must read `customdata`, never `point_index`.** Designs are split across traces so the
   legend can filter them, and `point_index` is trace-relative — clicking a dominated point would open a
   different design's microstructure.
+- **The AppTest suite reads the real `config.toml`.** Once `[checkpoints]` was populated, section A came
+  up pre-filled and every test asserting the unconfigured state failed on a machine-local file. The
+  autouse `no_local_checkpoints` fixture in `tests/conftest.py` blanks them via env vars; any new config
+  key the form seeds from needs the same treatment.
 - **Streamlit's file watcher does not fire reliably on this mount.** After editing, restart the server;
   otherwise you are testing stale code and will chase phantom bugs.
 - **`--pareto_steps` is always emitted**, even at its default, because it is the defining parameter of
   the sweep (and it is how a single stand-in script tells the two modes apart).
 
-## Developing without checkpoints
+## Checkpoints — present, and configured in `config.toml`
 
-The three `models/fm_multi_store/*.pt` EffPropNet checkpoints **do not exist anywhere on disk**, and
-argparse hard-fails without at least one. The `.pt` files in the sibling `AI4NS/` repo are a different
-generation (ResUNet) and will not load.
+The three EffPropNet checkpoints now exist at `../amit_AI4NS/models/fm_multi_store/` (~137 MB each):
 
-`scripts/fake_optimizer.py` unblocks everything else: it mirrors the CLI surface of both entry points,
-emits a realistic IPOPT table **through ctypes printf** so it reproduces the real C-level buffering, writes
-synthetic `.npz` artifacts with the real key sets, and has `--crash` / `--hang` for exercising the Runner's
-failure and cancel paths. Pareto mode is selected by `--pareto_steps`, matching upstream.
+```
+elastic_effpropnet_silu_f64_128_256_6554_fmmulti_epoch860.pt
+thermal_conductivity_effpropnet_silu_f64_128_256_6554_fmmulti_epoch1000.pt
+thermal_expansion_effpropnet_silu_f64_128_256_6554_fmmulti_epoch1000.pt
+```
+
+Their **absolute** paths live in the `[checkpoints]` table of `config.toml` (git-ignored and
+machine-specific — `config.example.toml` ships the keys empty). `ui/state.py:get_run_config` seeds section A
+of the form from them on first render, so the app opens ready to launch. `[paths].ckpt_dir` is *not* a
+resolution root — it only supplies the placeholder text in section A; the values themselves must be
+complete paths.
+
+A fourth file, `plasticity_yield_..._epoch1000.pt`, sits in the same directory and is unusable: neither
+entry point has a plasticity checkpoint flag, directive, or property. Section A says so in its caption.
+The `.pt` files in the sibling `AI4NS/` repo are also unusable — a different generation (ResUNet).
+
+Real solves work end to end from the GUI. Verified 2026-08-12, single-point, `--E 'target 200000'`:
+`EXIT: Optimal Solution Found`, 17 s in IPOPT, both `inverse_result_fm_multi_ac.npz` and the result png
+written to `runs/<id>/artifacts/`. Argparse still hard-fails with no checkpoint at all, so the doctor's
+Checkpoints check stays.
+
+`scripts/fake_optimizer.py` remains the fallback for machines without the `.pt` files (and is what the
+tests use): it mirrors the CLI surface of both entry points, emits a realistic IPOPT table **through ctypes
+printf** so it reproduces the real C-level buffering, writes synthetic `.npz` artifacts with the real key
+sets, and has `--crash` / `--hang` for exercising the Runner's failure and cancel paths. Point `[scripts]`
+at it to switch. Pareto mode is selected by `--pareto_steps`, matching upstream.
 
 ## The design deck
 

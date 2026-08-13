@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Stand-in for the AI4NS optimizer, for developing the GUI without checkpoints.
 
-The three EffPropNet checkpoints (models/fm_multi_store/*.pt) do not exist on disk and
-argparse hard-fails without at least one, so nothing real can run yet. This script
-mirrors the CLI surface and artifact format of both entry points closely enough to
-develop and test everything except the solve itself:
+The EffPropNet checkpoints (models/fm_multi_store/*.pt) ship with neither repo and
+argparse hard-fails without at least one, so on a machine that does not have them
+nothing real can run. This script mirrors the CLI surface and artifact format of both
+entry points closely enough to develop and test everything except the solve itself:
 
     run_inverse_design_fm_multi_ac.py   -> single-point (default)
     run_pareto_epsilon_fm_multi_ac.py   -> pareto (selected by --pareto_steps)

@@ -92,9 +92,21 @@ if (( BUILD_FENICS )); then
   YML="$(python3 -c "import os;print(os.path.realpath('$REPO/../amit_AI4NS/fenics_validation/environment_fenics.yml'))")"
   [[ -f "$YML" ]] || { echo "not found: $YML" >&2; exit 1; }
   # The name must stay fenics_env, or be threaded through --fenics_conda_env.
-  "$CONDA" env create -f "$YML"
-  "$CONDA" run -n fenics_env --no-capture-output python -c \
-    "import dolfinx; print('dolfinx', dolfinx.__version__)"
+  if "$CONDA" env list | awk '{print $1}' | grep -qx fenics_env; then
+    echo "fenics_env exists; installing any missing pieces into it"
+  else
+    "$CONDA" env create -f "$YML"
+  fi
+  # The yml is incomplete. fenics_validation/mesh.py imports dolfinx_mpc (the
+  # periodic BCs every solver uses) and output.py imports pandas; the yml lists
+  # neither, so a by-the-book env resolves under `conda run -n` and then dies at
+  # import -- after the solve, before artifacts are written.
+  "$CONDA" install -n fenics_env -c conda-forge -y dolfinx_mpc pandas
+  # Verify what the optimizer actually imports, not just dolfinx. Same cwd as the
+  # optimizer child, because nothing in the ai4ns repo is installed.
+  ( cd "$(dirname "$YML")/.." && "$CONDA" run -n fenics_env --no-capture-output \
+      python -c "import dolfinx, fenics_validation.validate as v; \
+print('dolfinx', dolfinx.__version__, '+ fenics_validation OK')" )
 else
   say "skipping fenics_env (deferred; pass --fenics to build it)"
 fi
@@ -108,9 +120,13 @@ cat <<EOF
   solver   : $(python3 -c "import json;print(json.load(open('env/cenv.activation.json'))['python'])")
   config   : $REPO/config.toml
 
-Smoke-test the Runner path without checkpoints:
+Last step for real runs: put the EffPropNet checkpoints in
+<ai4ns_repo>/models/fm_multi_store/ and record their absolute paths in the
+[checkpoints] table of config.toml. The form is pre-filled from it. The Doctor
+panel in the app tells you whether they resolve.
+
+No checkpoints yet? Point both [scripts] entries at scripts/fake_optimizer.py;
+everything but the physics still works. To drive it directly:
   .venv/bin/python scripts/fake_optimizer.py --ckpt_elastic_fm f.pt \\
       --E "target 200000" --output_dir /tmp/fakerun --iters 5
-
-Still blocked on real runs: models/fm_multi_store/*.pt (none exist on disk).
 EOF

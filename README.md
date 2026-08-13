@@ -3,9 +3,11 @@
 A GUI between the researcher and the AI4NS inverse-design optimizer: specify property targets in a form,
 launch single-point or Pareto runs, and browse the resulting space of designs.
 
-**Status:** the form, the execution layer and the design-space view work end to end against a
-stand-in optimizer. Real solves are blocked only on the model checkpoints (see below). Run
-history is list-and-reload; cross-run compare and FEniCS validation are not built.
+**Status:** working against the real optimizer — with the EffPropNet checkpoints in place, a
+single-point solve runs end to end from the form: launch, live IPOPT table, artifacts, design-space
+plot. Point `[scripts]` at the stand-in optimizer to develop without checkpoints. Run history is
+list-and-reload; cross-run compare is not built, and FEniCS validation stays gated until its env can
+import the upstream validator.
 
 ```bash
 ./scripts/setup.sh          # first time only
@@ -57,6 +59,11 @@ Around 60% of the code is pure Python with no Streamlit runtime. The suite inclu
 assertion that log lines arrive incrementally (the regression test for the PTY decision) and a
 cancel test asserting zero surviving processes.
 
+`tests/test_fenics_env.py` is the one part that reaches outside the repo: its unit tests fake
+`conda env list` and run anywhere, while the tests that drive the real `fenics_env` skip themselves when
+that env is not built. The suite as a whole does not depend on your `config.toml` — an autouse fixture
+blanks `[checkpoints]`, so it behaves the same with and without the real `.pt` files.
+
 ## Prerequisites
 
 - **conda** — miniforge, miniconda, or anaconda. Required, not optional: `cyipopt` has never published a
@@ -92,6 +99,11 @@ INVERSE_GUI_ENVS_DIR=/big/disk/envs ./scripts/setup.sh
 ```
 
 Add `--fenics` to also build the optional FEniCS validation environment (~3.5 GB, deferred by default).
+Note that `environment_fenics.yml` alone does **not** produce a usable env — it omits `dolfinx_mpc` and
+`pandas`, both of which `fenics_validation` imports at package level — so `setup.sh` installs them and
+then verifies by importing the validator rather than just `dolfinx`. Re-run it with `--fenics` to repair
+an existing `fenics_env`. Until that import succeeds, the app's validation toggle stays disabled and the
+Doctor panel prints the exact `conda install` line.
 
 The script is idempotent: re-running it skips environments that already exist, re-verifies the solver, and
 regenerates the machine-specific bits. It finishes by creating `config.toml` from `config.example.toml` if
@@ -103,10 +115,45 @@ you don't have one.
 |---|---|---|---|
 | `.venv` | uv | 3.12 | the GUI. Pure-PyPI deps; never solves, only reads `.npz` artifacts. |
 | `cenv` | conda-forge | 3.11 | the optimizer. Conda is mandatory — `cyipopt` is sdist-only on PyPI. |
-| `fenics_env` | conda-forge | 3.11 | optional ground-truth PDE validation. Not built unless `--fenics`. |
+| `fenics_env` | conda-forge | 3.11 | optional ground-truth PDE validation. Not built unless `--fenics`; needs `dolfinx_mpc` + `pandas` on top of the upstream yml. |
 
 Two files are generated per machine and are **not** in git: `config.toml` (your paths) and
 `env/cenv.activation.json` (captured conda activation variables). Both come from `setup.sh`.
+
+## Model checkpoints
+
+The one thing `setup.sh` cannot do for you. Real runs need the EffPropNet checkpoints, and the optimizer's
+argparse hard-fails without at least one. They are **not in either repo** (excluded by `.gitignore`
+upstream) and must be obtained separately — ~137 MB each. The standard location is
+`amit_AI4NS/models/fm_multi_store/`:
+
+```
+elastic_effpropnet_silu_f64_128_256_6554_fmmulti_epoch860.pt
+thermal_conductivity_effpropnet_silu_f64_128_256_6554_fmmulti_epoch1000.pt
+thermal_expansion_effpropnet_silu_f64_128_256_6554_fmmulti_epoch1000.pt
+```
+
+Record their **absolute** paths in the `[checkpoints]` table of your `config.toml`; the form's section A is
+pre-filled from it, so you configure this once rather than per run:
+
+```toml
+[checkpoints]
+elastic              = "/abs/path/to/amit_AI4NS/models/fm_multi_store/elastic_…_epoch860.pt"
+thermal_conductivity = "/abs/path/to/amit_AI4NS/models/fm_multi_store/thermal_conductivity_…_epoch1000.pt"
+thermal_expansion    = "/abs/path/to/amit_AI4NS/models/fm_multi_store/thermal_expansion_…_epoch1000.pt"
+```
+
+`INVERSE_GUI_CHECKPOINTS_ELASTIC` and friends override the file. Note `[paths].ckpt_dir` only sets the
+placeholder hint in section A — it is not a root that partial paths resolve against. Which checkpoints you
+load decides which property targets the form offers; configuring just one is legitimate if you only target
+that family. Run the **Doctor** panel to confirm the paths resolve before launching.
+
+Which checkpoints do *not* work: the `.pt` files in the sibling `AI4NS/` repo are a different generation
+(ResUNet, not EffPropNet) and will not load, and `plasticity_yield_…pt` has nothing to plug into — neither
+entry point exposes a plasticity flag or property.
+
+Without checkpoints, everything else — the form, the execution layer, streaming, cancel, artifact parsing,
+the design-space plot, run history — still runs against `scripts/fake_optimizer.py`.
 
 ## Using the GUI environment
 
@@ -130,10 +177,14 @@ still launch `cenv`'s interpreter by absolute path, which is exactly what the GU
 
 ## Smoke test
 
-`config.toml` ships pointing at the fake optimizer, so the app is fully usable straight after setup:
-set a checkpoint path in section A (any existing file — the fake does not read it), pick a target in
-section B, and Launch. To drive the fake directly instead, it mirrors the real CLI surface, streams a
-realistic IPOPT iteration table, and writes artifacts with the real key sets:
+With the checkpoints configured (see *Model checkpoints* above), the app is ready to solve:
+open it, pick a target in section B — `E = 200000`, say — and Launch. You should see the IPOPT
+iteration table stream live, `EXIT: Optimal Solution Found` after ~20 s, and the design appear in the
+design-space pane; `runs/<id>/` will hold the log, a re-runnable `run.sh`, and the `.npz` + png artifacts.
+
+Without checkpoints, point `[scripts]` at `scripts/fake_optimizer.py` (both keys) and everything except
+the physics still works. The fake mirrors the real CLI surface, streams a realistic IPOPT iteration
+table, and writes artifacts with the real key sets:
 
 ```bash
 .venv/bin/python scripts/fake_optimizer.py \
@@ -154,13 +205,3 @@ print('IPOPT ok:', np.allclose(r.x, [1, 2], atol=1e-5))"
 
 Importing `cyipopt` is not proof it works; that command exercises the IPOPT C++ library and its MUMPS
 linear solver end to end.
-
-## Known blocker: model checkpoints
-
-Real runs need the three EffPropNet checkpoints at `amit_AI4NS/models/fm_multi_store/*.pt`, and the
-optimizer's argparse hard-fails without at least one. **They do not exist on disk**, are excluded by
-`.gitignore` upstream, and must be obtained separately (~50–200 MB each). The `.pt` files in the sibling
-`AI4NS/` repo are a different generation — ResUNet, not EffPropNet — and will not load.
-
-This blocks only real solves. Everything else — the form, the execution layer, streaming, cancel, artifact
-parsing, the design-space plot, run history — can be built and tested against `fake_optimizer.py`.

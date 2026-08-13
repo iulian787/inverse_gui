@@ -110,6 +110,44 @@ def test_mode_toggle_switches_defaults(app):
     assert app.number_input(key='restarts').value == 3
 
 
+def _stub_fenics_check(monkeypatch, check):
+    """Pin the FEniCS verdict and clear the pane's cache so it is actually used."""
+    import streamlit as st
+
+    from inverse_gui.execution import doctor
+    monkeypatch.setattr(doctor, 'check_fenics_env', lambda cfg, **kw: check)
+    st.cache_data.clear()
+    st.cache_resource.clear()
+
+
+def test_a_broken_fenics_env_gates_section_f_and_says_why(app, monkeypatch):
+    """A built-but-unimportable env must disable the toggle, not just a missing one.
+
+    The failure this guards against is upstream's: validation runs after the solve
+    and before artifacts are written, with no try/except.
+    """
+    from inverse_gui.execution.doctor import Check
+    _stub_fenics_check(monkeypatch, Check(
+        'FEniCS env', False, "fenics_env present but unusable — "
+        "ModuleNotFoundError: No module named 'dolfinx_mpc'",
+        'conda install -n fenics_env -c conda-forge dolfinx_mpc', critical=False))
+
+    app.run()
+    assert not app.exception, [str(e) for e in app.exception]
+    assert not [c for c in app.checkbox if c.key == 'fenics.validate']
+    note = ' '.join(i.value for i in app.info)
+    assert 'dolfinx_mpc' in note and 'conda install' in note
+
+
+def test_a_working_fenics_env_offers_the_toggle(app, monkeypatch):
+    from inverse_gui.execution.doctor import Check
+    _stub_fenics_check(monkeypatch, Check('FEniCS env', True, 'fenics_env'))
+
+    app.run()
+    assert [c for c in app.checkbox if c.key == 'fenics.validate']
+    assert not app.session_state['run_config'].fenics.validate, 'must default off'
+
+
 def test_pareto_shows_the_cost_panel(app):
     app.run()
     app.text_input(key='ckpt.elastic').set_value('fake.pt').run()

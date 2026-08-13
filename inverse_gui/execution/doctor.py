@@ -1,7 +1,7 @@
 """Preflight checks.
 
 Given how many things must line up before a real run works -- two conda envs, an
-interpreter path, checkpoints that do not exist yet, conda reachable from the child
+interpreter path, checkpoint paths that must be configured, conda reachable from the child
 -- this turns each failure from a stack trace into a sentence plus the command that
 fixes it.
 
@@ -11,6 +11,7 @@ Pure functions returning Check objects; the UI only renders them.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -41,7 +42,9 @@ def run_all(cfg, *, probe_imports: bool = True) -> list[Check]:
         check_activation(cfg),
         check_runs_dir(cfg),
         check_checkpoints(cfg),
-        check_fenics_env(cfg),
+        # The FEniCS probe spawns `conda run` (~2s), so it rides the same flag as
+        # the solver import probe rather than firing on every cheap call.
+        check_fenics_env(cfg, probe=probe_imports),
     ]
     if probe_imports:
         out.insert(4, check_solver_imports(cfg))
@@ -148,17 +151,29 @@ def check_checkpoints(cfg) -> Check:
     ) if v.strip()}
     if not paths:
         return Check('Checkpoints', False, 'none configured',
-                     'The EffPropNet .pt files are not in the repo and must be '
-                     'obtained separately. Until then, point [scripts] at '
-                     'scripts/fake_optimizer.py.', critical=False)
+                     'Put the EffPropNet .pt files (shipped with neither repo) in '
+                     '<ai4ns_repo>/models/fm_multi_store and set their absolute '
+                     'paths in [checkpoints] in config.toml. Without them, point '
+                     '[scripts] at scripts/fake_optimizer.py.', critical=False)
     missing = [k for k, v in paths.items() if not Path(v).expanduser().exists()]
     if missing:
         return Check('Checkpoints', False, f"not found: {', '.join(missing)}",
-                     'Fix the paths in section A.', critical=False)
+                     'Fix the paths in section A, or in [checkpoints] in '
+                     'config.toml to make it stick.', critical=False)
     return _ok('Checkpoints', f"{len(paths)} configured")
 
 
-def check_fenics_env(cfg) -> Check:
+# Existence is not usability, and the difference is expensive here. The upstream
+# spec is incomplete: fenics_validation/mesh.py:7 imports dolfinx_mpc (the periodic
+# BCs every solver uses) and output.py:7 imports pandas, while
+# environment_fenics.yml lists neither. A name-only check goes green on an env that
+# raises at import -- and upstream calls it with no try/except AFTER the solve and
+# BEFORE artifacts are written, so the false green costs a completed run. Probe the
+# import the way upstream will invoke it: conda run -n <env>, cwd = the ai4ns root.
+_FENICS_PROBE = 'import fenics_validation.validate'
+
+
+def check_fenics_env(cfg, *, probe: bool = True) -> Check:
     """Gates the validation toggle. Upstream does NOT skip gracefully without it."""
     if not fenics_env_exists(cfg):
         return Check('FEniCS env', False, f'{cfg.fenics.conda_env} not found',
@@ -166,7 +181,61 @@ def check_fenics_env(cfg) -> Check:
                      '<ai4ns>/fenics_validation/environment_fenics.yml  '
                      '(deferred by default; validation stays disabled)',
                      critical=False)
-    return _ok('FEniCS env', cfg.fenics.conda_env)
+    if not probe:
+        return _ok('FEniCS env', f'{cfg.fenics.conda_env} (present, not probed)')
+    ok, detail = fenics_import_probe(cfg)
+    if ok:
+        return _ok('FEniCS env', f'{cfg.fenics.conda_env}: fenics_validation imports')
+    return Check('FEniCS env', False,
+                 f'{cfg.fenics.conda_env} present but unusable — {detail}',
+                 _fenics_remedy(cfg, detail), critical=False)
+
+
+def fenics_import_probe(cfg, *, timeout: float = 120) -> tuple[bool, str]:
+    """(ok, detail) for importing the upstream validation package inside the env."""
+    conda = env_mod.find_conda(cfg.solver.conda_exe.strip())
+    if not conda:
+        return False, 'conda not found'
+    repo = cfg.ai4ns_repo
+    if not (repo / 'fenics_validation').is_dir():
+        return False, f'no fenics_validation package under {repo}'
+    cmd = [conda, 'run', '-n', cfg.fenics.conda_env, '--no-capture-output',
+           'python', '-c', _FENICS_PROBE]
+    try:
+        # cwd matters: nothing is installed, so the package is importable only
+        # from the repo root -- the same cwd the optimizer child runs in.
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           timeout=timeout, cwd=repo)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, str(exc)
+    if r.returncode == 0:
+        return True, ''
+    return False, _last_meaningful(r.stderr)
+
+
+def _last_meaningful(stderr: str) -> str:
+    """The child's own error, not conda's epilogue.
+
+    `conda run` appends its own "ERROR conda.cli.main_run:execute(125): ... failed."
+    line after the child's traceback, so the literal last line names conda rather
+    than the missing module.
+    """
+    lines = [ln.strip() for ln in (stderr or '').splitlines() if ln.strip()]
+    for ln in reversed(lines):
+        if not ln.startswith('ERROR conda'):
+            return ln
+    return lines[-1] if lines else 'unknown error'
+
+
+def _fenics_remedy(cfg, detail: str) -> str:
+    missing = re.search(r"No module named '([\w.]+)'", detail)
+    if missing:
+        return (f'conda install -n {cfg.fenics.conda_env} -c conda-forge '
+                f'{missing.group(1)}  (environment_fenics.yml omits dolfinx_mpc '
+                'and pandas, which fenics_validation imports at package level)')
+    return ('Repair the env before enabling validation — upstream has no '
+            'try/except around the call, and it runs after the solve but before '
+            'artifacts are written.')
 
 
 def fenics_env_exists(cfg) -> bool:
@@ -183,7 +252,14 @@ def fenics_env_exists(cfg) -> bool:
         if line.strip().startswith('#'):
             continue
         parts = line.split()
-        if parts and parts[0] == name:
+        if not parts:
+            continue
+        # Named envs list as "<name> [*] <prefix>"; an env conda knows only by
+        # location lists as the bare prefix. `conda run -n` resolves a name by
+        # looking for that basename under envs_dirs, so matching the prefix
+        # basename too is the more faithful test. A false positive from either
+        # is now caught by the import probe instead of at the end of a solve.
+        if parts[0] == name or Path(parts[-1]).name == name:
             return True
     return False
 

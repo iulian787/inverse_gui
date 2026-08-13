@@ -125,6 +125,61 @@ whenever the solver environment is rebuilt.
 - **`OMP_NUM_THREADS` / `MKL_NUM_THREADS`** — IPOPT, MUMPS and torch each default to every core.
 - **conda on the child's `PATH`** whenever FEniCS validation might run; see below.
 
+## The recipe, confirmed against the real optimizer
+
+The three findings above were measured on the solver environment and on `fake_optimizer.py`. Since
+2026-08-12 they are also confirmed on the real thing: with the EffPropNet checkpoints in place
+(`amit_AI4NS/models/fm_multi_store/`, paths recorded in `[checkpoints]` in `config.toml`), a single-point
+run launched from the GUI reached `EXIT: Optimal Solution Found` — 17 s in IPOPT — and wrote both
+`inverse_result_fm_multi_ac.npz` and the result png. The iteration table streamed row by row rather than
+arriving in one lump at exit, which is finding 2 holding on the real `libipopt.so`.
+
+The child was exactly what this document prescribes, and `runs/<id>/run.sh` records it verbatim:
+
+```bash
+cd <ai4ns_repo>                       # entry scripts sys.path.insert their own dirname
+export CUDA_VISIBLE_DEVICES=''        # [solver].device = "cpu"
+export MKL_INTERFACE_LAYER=LP64,GNU   # from env/cenv.activation.json — finding 3
+export MKL_NUM_THREADS=4 OMP_NUM_THREADS=4
+export MPLBACKEND=Agg
+<envs>/cenv/bin/python -u <ai4ns_repo>/run_inverse_design_fm_multi_ac.py …   # finding 1
+```
+
+FEniCS validation stayed off for that run, so the destructive path described below was not exercised —
+it remains untested against the real optimizer and the toggle stays gated on the preflight check.
+
+## The FEniCS env: `environment_fenics.yml` does not describe a working env
+
+`fenics_env` is built now (`../envs/fenics_env`, dolfinx 0.11.0, PETSc 3.25.4, mpi4py 4.1.2) and it is a
+perfectly good dolfinx environment. It still cannot run the validator:
+
+```
+$ conda run -n fenics_env python -c 'import fenics_validation.validate'   # cwd = ai4ns root
+  File ".../fenics_validation/mesh.py", line 7, in <module>
+    import dolfinx_mpc
+ModuleNotFoundError: No module named 'dolfinx_mpc'
+```
+
+`dolfinx_mpc` supplies the periodic boundary conditions used by all four solvers
+(`linear_elasticity.py:154`, `thermal_conductivity.py:106`, `thermal_expansion.py:102`,
+`plasticity.py:323`) and is imported at *package* level via `mesh.py`, so the whole package is
+unimportable without it. `output.py:7` imports `pandas`. **`environment_fenics.yml` lists neither** — it
+stops at `fenics-dolfinx>=0.8`. Both are on conda-forge and match the installed stack
+(`dolfinx_mpc 0.11.0`, py311):
+
+```bash
+conda install -n fenics_env -c conda-forge dolfinx_mpc pandas
+```
+
+Why this is a documented finding rather than a footnote: it interacts with the destructive path below.
+Checking that the *env exists* is not checking that it *works*, and the gap between the two is one
+completed solve. So the preflight check no longer greps `conda env list` for the name — it runs the
+import, the same way upstream will (`conda run -n <env>`, cwd = the ai4ns root), and reports the missing
+module with the install command. `tests/test_fenics_env.py` covers the three conditions separately:
+name resolution, importability, and conda being reachable from the *child's* PATH — the last one because
+it is the optimizer, not the GUI, that shells out to `conda run`, and `env.build()` strips the GUI venv
+from that PATH before it does.
+
 ## Design-deck claims that are factually wrong
 
 Verified against the source. Do not build on these.
@@ -135,7 +190,8 @@ anywhere in the call chain**, and shells `subprocess.run(['conda', 'run', ...])`
 `auto_activate_base: false` and a non-login subprocess, conda missing from the child's `PATH` is the
 *default* case → uncaught `FileNotFoundError`. It fires *after* the solve completes and *before*
 `plot_results` at `:728`, so a twenty-minute run dies without writing artifacts. Three defenses, all
-needed: inject conda into the child `PATH`, default the toggle off, and gate it on a preflight check.
+needed: inject conda into the child `PATH`, default the toggle off, and gate it on a preflight check —
+one that probes the import rather than the env's name, for the reason given in the section above.
 
 **"Built from the existing Pydantic schema" (architecture slide) — there is no such schema.** Zero hits for
 `pydantic`/`BaseModel` across `amit_AI4NS`. Pydantic exists only in `compogen`, a different repo with no

@@ -39,10 +39,11 @@ def main() -> None:
     # first render before any widget has been touched. The second pass runs after the
     # form has written this interaction's values into rc, so the Launch gate reflects
     # what the user is looking at instead of lagging one interaction behind.
+    fenics_ok, fenics_note = doctor_pane.fenics_status(cfg)
     with left:
         st.subheader('Input')
         sections.render(rc, cfg, validate_mod.by_field(validate_mod.validate(rc)),
-                        fenics_available=doctor_pane.fenics_available(cfg))
+                        fenics_available=fenics_ok, fenics_note=fenics_note)
 
     issues = validate_mod.validate(rc)
 

@@ -112,6 +112,37 @@ def test_run_appears_in_history(env):
         any(run_id in (m.value or '') for m in at.markdown)
 
 
+def test_pinned_designs_render_in_the_compare_panel(env):
+    """Pins survive a rerun and resolve against artifacts on disk.
+
+    The click itself cannot be simulated -- AppTest has no plotly selection -- so
+    this drives the state the click produces and checks everything downstream of it.
+    """
+    from inverse_gui.ui.compare import PINS_KEY, Pin
+
+    at = fresh_app()
+    at.run()
+    run_id = launch(at, env / 'elastic.pt')
+    wait_for(env / 'runs', run_id)
+
+    at.session_state[PINS_KEY] = [Pin(run_id, 0)]
+    at.run()
+    assert not at.exception, [str(e) for e in at.exception]
+    assert at.session_state[PINS_KEY], 'the pin was dropped on rerun'
+    assert any('1 of' in (c.value or '') for c in at.caption), \
+        'the compare panel did not report its pin count'
+
+
+def test_a_pin_whose_run_vanished_is_reported_not_fatal(env):
+    from inverse_gui.ui.compare import PINS_KEY, Pin
+
+    at = fresh_app()
+    at.session_state[PINS_KEY] = [Pin('run_20200101_000000_sp', 3)]
+    at.run()
+    assert not at.exception, [str(e) for e in at.exception]
+    assert any('no longer available' in (c.value or '') for c in at.caption)
+
+
 def test_reproduction_files_are_written(env):
     at = fresh_app()
     at.run()

@@ -89,6 +89,38 @@ def test_output_dir_is_redirected_into_the_run(runner):
     assert '/tmp/should-not-be-used' not in ' '.join(st.argv)
 
 
+def test_fenics_output_dir_is_redirected_too(runner):
+    """Validation results must not escape the run directory either.
+
+    Upstream defaults --fenics_output_dir to <output_dir>/fenics, which is already
+    inside the run -- but an explicit value in section F would send ground truth to
+    a shared path, where the results panel cannot find it and two runs overwrite
+    each other's numbers.
+    """
+    cfg = make_cfg()
+    cfg.fenics.validate = True
+    cfg.fenics.output_dir = '/tmp/shared-fenics'
+    run_id = runner.submit(cfg)
+    wait_terminal(runner, run_id)
+
+    argv = ' '.join(runstore.read_status(runner.runs_root, run_id).argv)
+    assert '/tmp/shared-fenics' not in argv
+    assert f'{run_id}/artifacts/fenics' in argv
+
+
+def test_fenics_results_land_where_the_loader_looks(runner):
+    """End to end: validation on, then the design set comes back with ground truth."""
+    from inverse_gui.artifacts.loader import load_run
+    cfg = make_cfg()
+    cfg.fenics.validate = True
+    run_id = runner.submit(cfg)
+    wait_terminal(runner, run_id)
+
+    ds = load_run(runstore.artifact_dir(runner.runs_root, run_id))
+    assert ds is not None and ds.has_fenics
+    assert ds.designs[0].fenics_props
+
+
 def test_pareto_run_writes_pareto_npz(runner):
     cfg = make_cfg(RunMode.PARETO, pareto_steps=4)
     cfg.directives['kappa'] = Directive('kappa', Mode.MAX)

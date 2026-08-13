@@ -101,6 +101,28 @@ def test_fenics_line():
     assert e.kind is EventKind.FENICS
 
 
+def test_grid_feasibility_line():
+    e = classify('    3/5 restarts feasible')
+    assert e.kind is EventKind.GRID_FEASIBLE
+    assert e.data == {'feasible': 3, 'total': 5}
+
+
+def test_no_feasible_restarts_is_still_a_report():
+    """A barren grid point is the reading that matters; 0 must not be falsy-dropped."""
+    e = classify('    0/3 restarts feasible')
+    assert e.kind is EventKind.GRID_FEASIBLE and e.data['feasible'] == 0
+
+
+def test_a_singular_restart_still_parses():
+    assert classify('    1/1 restart feasible').kind is EventKind.GRID_FEASIBLE
+
+
+def test_the_total_solutions_summary_is_not_a_grid_report():
+    """'Total solutions: 40 | Feasible: 31' is an end-of-run tally, not per point."""
+    e = classify('  Total solutions: 40  |  Feasible: 31')
+    assert e.kind is not EventKind.GRID_FEASIBLE
+
+
 # ------------------------------------------------------------------ reducer
 
 def test_reducer_tracks_pareto_progress():
@@ -140,6 +162,57 @@ def test_done_sets_fraction_to_one():
     r = ProgressReducer()
     r.feed(classify('Done.'))
     assert r.state.done and r.state.fraction == 1.0
+
+
+SWEEP = """\
+Stage 2: Epsilon-Constraint Pareto Sweep
+  Epsilon grid: [4] points per property (4 combinations × 2 restarts = 8 solves)
+
+  Grid point 1/4: {'kappa': 150.0}
+    2/2 restarts feasible
+
+  Grid point 2/4: {'kappa': 160.0}
+    0/2 restarts feasible
+
+  Grid point 3/4: {'kappa': 170.0}
+    1/2 restarts feasible
+"""
+
+
+def test_reducer_accumulates_sweep_coverage():
+    r = ProgressReducer()
+    for line in SWEEP.splitlines():
+        r.feed(classify(line))
+
+    assert r.state.points_reported == 3
+    assert r.state.points_feasible == 2          # the 0/2 point does not count
+    assert r.state.solves_feasible == 3
+    assert r.state.solves_attempted == 6
+    assert '2/3 grid points feasible' in r.state.sweep_summary
+
+
+def test_coverage_records_which_grid_point_each_result_belongs_to():
+    r = ProgressReducer()
+    for line in SWEEP.splitlines():
+        r.feed(classify(line))
+    assert r.state.recent == ((1, 2, 2), (2, 0, 2), (3, 1, 2))
+
+
+def test_coverage_is_bounded_for_a_large_grid():
+    """A Cartesian ε grid runs to hundreds of points; the snapshot is per-second."""
+    r = ProgressReducer()
+    for g in range(300):
+        r.feed(classify(f'  Grid point {g + 1}/300: {{}}'))
+        r.feed(classify('    1/1 restarts feasible'))
+    assert r.state.points_reported == 300
+    assert len(r.state.recent) <= 60
+    assert r.state.recent[-1] == (300, 1, 1)
+
+
+def test_no_sweep_means_no_summary():
+    r = ProgressReducer()
+    r.feed(classify('  Device: cpu'))
+    assert r.state.sweep_summary == ''
 
 
 def test_replay_is_equivalent_to_streaming():

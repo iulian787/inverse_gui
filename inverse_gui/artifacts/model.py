@@ -52,6 +52,9 @@ class Design:
     final_loss: float | None = None
     crowding: float | None = None
     prop_history: dict[str, np.ndarray] = field(default_factory=dict)
+    # Ground truth for the same design, when FEniCS validation ran. Empty is the
+    # normal case -- validation is opt-in and can fail per physics.
+    fenics_props: dict[str, float] = field(default_factory=dict)
 
     @property
     def volume_fraction(self) -> float | None:
@@ -61,6 +64,10 @@ class Design:
 
     def get(self, prop: str) -> float | None:
         return self.props.get(prop)
+
+    @property
+    def has_fenics(self) -> bool:
+        return bool(self.fenics_props)
 
 
 @dataclass
@@ -113,3 +120,7 @@ class DesignSet:
             'feasible': sum(1 for d in self.designs if d.feasible),
             'front': sum(1 for d in self.designs if d.rank == 0),
         }
+
+    @property
+    def has_fenics(self) -> bool:
+        return any(d.has_fenics for d in self.designs)

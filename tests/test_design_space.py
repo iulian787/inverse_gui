@@ -85,6 +85,51 @@ def test_target_band_uses_the_supplied_tolerance():
     assert width(loose) > width(tight) * 10
 
 
+def test_the_fenics_column_appears_only_when_validation_ran():
+    ds = make_set()
+    plain, _ = dsp.criteria_rows(ds, ds.designs[0], 0.02)
+    assert 'achieved' in plain[0] and 'FEniCS' not in plain[0]
+
+    ds.designs[0].fenics_props = {'E': 202000.0}
+    validated, _ = dsp.criteria_rows(ds, ds.designs[0], 0.02)
+    assert 'NN' in validated[0] and 'achieved' not in validated[0]
+    assert 'FEniCS' in validated[0] and 'Δ' in validated[0]
+
+
+def test_the_delta_is_measured_against_ground_truth():
+    """1% of the FEniCS value, not of the surrogate's -- the denominator matters."""
+    ds = make_set()
+    d = ds.designs[0]
+    d.props['E'] = 202000.0
+    d.fenics_props = {'E': 200000.0}
+    rows, line = dsp.criteria_rows(ds, d, 0.02)
+    row = next(r for r in rows if r['property'] == 'E')
+    assert row['Δ'] == '1.0%'
+    assert 'max surrogate error vs FEniCS **1.0%**' in line
+
+
+def test_a_property_only_fenics_computed_still_gets_a_row():
+    """FEniCS reports the full anisotropic set even when the run targeted E alone."""
+    ds = make_set()
+    ds.designs[0].fenics_props = {'E': 2e5, 'G_xy': 77000.0}
+    rows, _ = dsp.criteria_rows(ds, ds.designs[0], 0.02)
+    extra = next(r for r in rows if r['property'] == 'G_xy')
+    assert extra['NN'] == '—' and extra['FEniCS'] == '7.7e+04'
+    assert extra['Δ'] == ''            # nothing to compare against
+
+
+def test_target_error_and_fenics_delta_are_separate_columns():
+    """Hitting the target says nothing about agreeing with the PDE."""
+    ds = make_set()
+    ds.criteria = [Criterion(prop='E', mode='range', target=200000.0)]
+    d = ds.designs[0]
+    d.props['E'] = 200000.0            # exactly on target
+    d.fenics_props = {'E': 180000.0}   # but the PDE disagrees by 11%
+    row = next(r for r in dsp.criteria_rows(ds, d, 0.02)[0] if r['property'] == 'E')
+    assert row['error'] == '0.0%' and row[''] == '✓'
+    assert row['Δ'] == '11.1%'
+
+
 def test_points_with_missing_values_are_dropped_not_zeroed():
     ds = make_set()
     ds.designs[0].props.pop('E')

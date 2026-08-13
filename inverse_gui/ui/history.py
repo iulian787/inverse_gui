@@ -42,5 +42,6 @@ def render(cfg) -> None:
             state_mod.set_active_run(st_row.run_id)
             st.rerun()
 
-    st.caption('Comparing designs across runs (masks side by side, convergence '
-               'overlay) is not built yet.')
+    st.caption('To compare designs across runs, open a run, click a point in the '
+               'design space, and pin it — the **Compare designs** panel below '
+               'holds up to 4.')

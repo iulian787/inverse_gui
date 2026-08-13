@@ -38,12 +38,15 @@ def inline_issues(issues: list[Issue]) -> None:
             st.caption(f'🟡 {issue.message}')
 
 
-def mask_image(mask, *, caption: str = '', width: int | None = 260):
+def mask_image(mask, *, caption: str = '', width: int | str = 260):
     """Render a 128x128 binary field.
 
     st.image on a uint8 array rather than a Plotly heatmap: for a binary field the
     heatmap costs far more to serialise and looks no better. Flipped vertically to
     match the optimizer's own origin='lower' plots.
+
+    `width` is pixels or one of Streamlit's keywords ('stretch', 'content'); None is
+    rejected by st.image, so callers that want the column width pass 'stretch'.
     """
     if mask is None:
         st.caption('no microstructure in this artifact')

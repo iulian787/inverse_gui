@@ -85,6 +85,13 @@
   .tag{display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; border-radius:20px;
     background:var(--accent-soft); color:var(--accent); margin-left:8px; vertical-align:middle}
   .tag.open{background:var(--chip); color:var(--muted)}
+  /* Settled decisions. Built from --ok, which exists in both theme blocks, so this
+     needs no new custom property to stay legible in dark mode. */
+  .tag.done{background:transparent; color:var(--ok); border:1px solid var(--ok)}
+  /* Semantic text colours inside figures. These MUST be classes: .txt already sets
+     fill, and a CSS declaration beats a presentation attribute, so putting the
+     colour in a fill="..." attribute renders as plain ink instead. */
+  .txt.ok{fill:var(--ok)} .txt.bad{fill:var(--warn)} .txt.hl{fill:var(--accent)}
 </style>
 </head>
 <body>
@@ -105,7 +112,7 @@
         <li><b>The optimizer today:</b> two CLI scripts with ~40 property-target flags, or a chat-only compogen plugin.</li>
         <li><b>The gap:</b> no form-based GUI, dashboard, or HTTP API anywhere in the repo.</li>
         <li><b>The build:</b> a structured input form, live progress, and an interactive results view — no CLI flags to memorize.</li>
-        <li><b>Reuse, don't rebuild:</b> the input schema and the optimizer stay exactly as they are.</li>
+        <li><b>Reuse, don't rebuild:</b> the optimizer stays exactly as it is — the GUI builds its command line, reads its artifacts, and changes nothing upstream.</li>
       </ul>
       <div class="figwrap">
         <svg viewBox="0 0 380 300" role="img" aria-label="Researcher to optimizer overview">
@@ -162,7 +169,7 @@
 
           <rect x="150" y="240" width="120" height="52" rx="9" class="box"/>
           <text x="210" y="262" text-anchor="middle" class="txt b">Run store</text>
-          <text x="210" y="279" text-anchor="middle" class="txt mut sm">history / logbook</text>
+          <text x="210" y="279" text-anchor="middle" class="txt mut sm">history / reattach</text>
 
           <path class="flow" d="M134,46 L149,46"/>
           <path class="flow" d="M270,46 L285,46"/>
@@ -174,11 +181,12 @@
         </svg>
       </div>
       <ul class="notes">
-        <li><b>Form → RunConfig:</b> a validated object built from the existing Pydantic schema.</li>
+        <li><b>Form → RunConfig:</b> a validated object written from scratch against the argparse surface — there is no Pydantic schema upstream to reuse.</li>
         <li><b><code>Runner</code>:</b> the single seam — <code>submit / stream / result / cancel</code>.</li>
         <li><b>Optimizer unchanged:</b> the same IPOPT + Allen–Cahn stack writes the same <code>.npz</code>/<code>.png</code> artifacts.</li>
         <li><b>Results view</b> reads artifacts; <b>run store</b> persists every run for history &amp; compare.</li>
-        <li><b>Live events</b> stream back through the Runner during a solve.</li>
+        <li><b>Live events</b> stream back through the Runner during a solve, via a line classifier and a pure reducer that can replay a log from disk.</li>
+        <li><b>Also built, not drawn:</b> a preflight doctor, a re-runnable <code>run.sh</code> per run, a solve-count estimate that gates Launch, and reattach to a run that outlived the browser session.</li>
       </ul>
     </div>
   </section>
@@ -194,7 +202,7 @@
           <rect x="10" y="10" width="880" height="320" rx="12" class="box"/>
           <rect x="24" y="24" width="852" height="30" rx="7" class="chip"/>
           <text x="40" y="44" class="txt b">Mode:  ● Single-point   ○ Pareto</text>
-          <text x="770" y="44" class="txt mut">[ Load preset ▾ ]</text>
+          <text x="742" y="44" class="txt mut">[ Environment check ▾ ]</text>
 
           <!-- input -->
           <rect x="24" y="64" width="250" height="212" rx="8" class="box acc"/>
@@ -256,7 +264,7 @@
           <g>
             <rect x="20" y="14"  width="340" height="40" rx="8" class="box acc"/>
             <text x="34" y="32" class="txt b">A · Physics / checkpoints</text>
-            <text x="34" y="47" class="txt mut sm">elastic · thermal_cond · thermal_exp · plasticity</text>
+            <text x="34" y="47" class="txt mut sm">elastic · thermal_cond · thermal_exp</text>
 
             <rect x="20" y="62" width="340" height="46" rx="8" class="box"/>
             <text x="34" y="80" class="txt b">B · Targets (directives)</text>
@@ -281,10 +289,11 @@
         </svg>
       </div>
       <ul class="notes">
-        <li><b>Active-physics gating:</b> only relevant properties appear; isotropic aliases by default, anisotropic + <code>sigY_*</code> behind an "advanced" expander.</li>
+        <li><b>Active-physics gating:</b> only relevant properties appear; isotropic by default with a per-component toggle for the anisotropic set.</li>
+        <li><b>No plasticity:</b> neither entry point has a plasticity checkpoint, directive, or flag, so section A offers three families, not four.</li>
         <li><b>Directives → optimizer:</b> <code>max/min</code> become objective terms, <code>target/range</code> become hard constraints.</li>
         <li><b>Phase props</b> seed from explicit values, a consolidated HDF5, or built-in defaults.</li>
-        <li><b>Reuse:</b> fields, labels, and typical ranges come straight from <code>TuningConfig</code>.</li>
+        <li><b>Validation is per-field and non-blocking where it can be:</b> errors disable Launch, warnings explain the upstream behaviour instead of guessing for you.</li>
       </ul>
     </div>
   </section>
@@ -304,7 +313,7 @@
           <rect x="70" y="176" width="56" height="14" rx="4" class="chip"/>
           <text x="98" y="187" text-anchor="middle" class="txt sm mut">target ✕</text>
           <text x="98" y="224" text-anchor="middle" class="txt sm">weights · vf_min/max</text>
-          <text x="98" y="242" text-anchor="middle" class="txt sm">+ plasticity</text>
+          <text x="98" y="242" text-anchor="middle" class="txt sm">+ AC sharpening</text>
           <text x="98" y="260" text-anchor="middle" class="txt sm mut">restarts → best</text>
 
           <rect x="200" y="24" width="164" height="250" rx="10" class="box"/>
@@ -321,9 +330,10 @@
         </svg>
       </div>
       <ul class="notes">
-        <li><b>Single-point</b> (<code>run_inverse_design_fm_multi_ac.py</code>): one design; supports weights, VF bounds, and plasticity.</li>
-        <li><b>Pareto</b> (<code>run_pareto_epsilon_fm_multi_ac.py</code>): ρ as primary objective, other targets swept as ε-constraints; excludes plasticity.</li>
+        <li><b>Single-point</b> (<code>run_inverse_design_fm_multi_ac.py</code>): one design; supports weights, VF bounds, and multiple restarts.</li>
+        <li><b>Pareto</b> (<code>run_pareto_epsilon_fm_multi_ac.py</code>): ρ as primary objective, other targets swept as ε-constraints.</li>
         <li><b>Different defaults</b> surfaced in the form (e.g. <code>target_tol</code>, <code>restarts</code>).</li>
+        <li><b>The ε grid is a Cartesian product,</b> so the form estimates the solve count and makes you acknowledge a sweep past a threshold. <code>--dry_run</code> prints the estimate without solving.</li>
         <li><b>Shared:</b> physics, phase props, and validation sections.</li>
       </ul>
     </div>
@@ -331,9 +341,9 @@
 
   <!-- 6 · RUNNER -->
   <section class="slide">
-    <div class="kicker">Component 5 · open decision <span class="tag open">execution</span></div>
+    <div class="kicker">Component 5 · decided <span class="tag done">subprocess</span></div>
     <h2>Execution model — the <code>Runner</code> interface</h2>
-    <p class="sub">One interface, interchangeable backends, so the execution choice is not baked in.</p>
+    <p class="sub">One interface, one shipped backend. The other two turned out not to be drop-in replacements.</p>
     <div class="cols">
       <div class="figwrap">
         <svg viewBox="0 0 400 320" role="img" aria-label="Runner interface and backends">
@@ -344,17 +354,17 @@
           <rect x="18" y="150" width="118" height="70" rx="9" class="box"/>
           <text x="77" y="174" text-anchor="middle" class="txt b">Subprocess</text>
           <text x="77" y="190" text-anchor="middle" class="txt mut sm">runs the CLI</text>
-          <text x="77" y="206" text-anchor="middle" class="txt sm" fill="var(--ok)">default · v1</text>
+          <text x="77" y="206" text-anchor="middle" class="txt sm ok">built · shipped</text>
 
           <rect x="141" y="150" width="118" height="70" rx="9" class="box"/>
           <text x="200" y="174" text-anchor="middle" class="txt b">In-process</text>
           <text x="200" y="190" text-anchor="middle" class="txt mut sm">imports package</text>
-          <text x="200" y="206" text-anchor="middle" class="txt mut sm">richest events</text>
+          <text x="200" y="206" text-anchor="middle" class="txt sm bad">no cancel()</text>
 
           <rect x="264" y="150" width="118" height="70" rx="9" class="box"/>
           <text x="323" y="174" text-anchor="middle" class="txt b">compogen</text>
           <text x="323" y="190" text-anchor="middle" class="txt mut sm">HPC / MCP</text>
-          <text x="323" y="206" text-anchor="middle" class="txt mut sm">logbook · scale</text>
+          <text x="323" y="206" text-anchor="middle" class="txt mut sm">separate project</text>
 
           <path class="flow" d="M170,76 C120,110 90,120 80,149"/>
           <path class="flow" d="M200,76 L200,149"/>
@@ -369,10 +379,10 @@
         </svg>
       </div>
       <ul class="notes">
-        <li><b>Subprocess</b> (recommended v1): builds argv for either script; zero optimizer changes; covers both modes today.</li>
-        <li><b>In-process:</b> imports <code>utils.optimization</code> for structured per-iteration progress; tighter coupling.</li>
-        <li><b>compogen HPC/MCP:</b> reuses staging, logbook, and cluster scale — needs a new Pareto <code>@tool</code> for parity.</li>
-        <li><b>Same schema &amp; artifacts</b> across all three — the GUI code doesn't change when the backend does.</li>
+        <li><b>Subprocess — built.</b> Builds argv for either script; zero optimizer changes; covers both modes. Spawns the solver env's interpreter <i>directly</i>, never <code>conda run</code>, which builds a 4-deep tree that survives <code>terminate()</code>; cancel is <code>killpg</code> on the run's own process group.</li>
+        <li><b>In-process — foreclosed, not deferred.</b> It would make the GUI process <i>be</i> the solver env, and <code>cancel()</code> is unimplementable: you cannot interrupt a thread inside C++ IPOPT.</li>
+        <li><b>compogen — a later integration, not a backend you configure.</b> Staging and cluster scale are real; the logbook is not, and its 20-tool registry is strictly forward simulation with no inverse-design or Pareto tool. It depends on <code>compgen</code> (MOOSE/Sculpt), not on ai4ns.</li>
+        <li><b>So "interchangeable" was wrong.</b> The seam is still worth having — it is what makes the GUI testable against a stand-in optimizer — but the choice is environmental, not a config flag.</li>
       </ul>
     </div>
   </section>
@@ -380,8 +390,8 @@
   <!-- 7 · DESIGN SPACE -->
   <section class="slide">
     <div class="kicker">Component 6 · centerpiece</div>
-    <h2>Design-space view — hover reveals the mask</h2>
-    <p class="sub">Every candidate design is a point in property space; hovering shows its microstructure and how well it meets the criteria.</p>
+    <h2>Design-space view — click reveals the mask</h2>
+    <p class="sub">Every candidate design is a point in property space; clicking one shows its microstructure and how well it meets the criteria.</p>
     <div class="cols">
       <div class="figwrap">
         <svg viewBox="0 0 400 330" role="img" aria-label="Design space scatter with hover popover">
@@ -410,9 +420,9 @@
           <rect x="206" y="72" width="26" height="26" fill="var(--muted)"/>
           <rect x="232" y="98" width="26" height="26" fill="var(--muted)"/>
           <text x="270" y="86" class="txt sm b">meets 2/3</text>
-          <text x="270" y="102" class="txt sm" fill="var(--ok)">E ✓</text>
-          <text x="270" y="116" class="txt sm" fill="var(--ok)">ρ ✓</text>
-          <text x="270" y="130" class="txt sm" fill="var(--warn)">ν ✗ 4.1%</text>
+          <text x="270" y="102" class="txt sm ok">E ✓</text>
+          <text x="270" y="116" class="txt sm ok">ρ ✓</text>
+          <text x="270" y="130" class="txt sm bad">ν ✗ 4.1%</text>
           <path d="M196,120 L184,146" stroke="var(--line)"/>
         </svg>
         <div class="legend">
@@ -423,10 +433,10 @@
       </div>
       <ul class="notes">
         <li><b>Points:</b> Pareto solutions (colored by rank, feasibility) or single-point restarts, from the run's <code>.npz</code>.</li>
-        <li><b>Axis pickers:</b> choose any two effective properties (E vs ρ, κ vs α, …).</li>
-        <li><b>Hover → popover:</b> the 128×128 <b>binary mask</b> + a per-criterion ✓/✗ with fractional error.</li>
-        <li><b>Click → detail:</b> full mask, achieved-vs-target table, convergence curve, validation.</li>
-        <li><b>Needs an interactive chart</b> (Plotly/Bokeh) — not the CLI's static PNG.</li>
+        <li><b>Axis pickers:</b> choose any two effective properties (E vs ρ, κ vs α, …), with the requested target drawn as a band.</li>
+        <li><b>Click, not hover.</b> Plotly hover events do not round-trip to Python in Streamlit; selection does. The tooltip still carries the numbers, so hovering stays informative and the click opens the detail.</li>
+        <li><b>Detail:</b> the 128×128 <b>binary mask</b>, achieved-vs-target with per-criterion ✓/✗ and fractional error, convergence curve, and the FEniCS column when validation ran.</li>
+        <li><b>Selection reads <code>customdata</code>, never the point index:</b> points are split across traces so the legend can filter them, and a trace-relative index would open a different design's microstructure.</li>
       </ul>
     </div>
   </section>
@@ -444,7 +454,7 @@
           <text x="34" y="64" class="txt mut sm">IPOPT iter 40   obj=1.2e-2  viol=3e-4</text>
           <text x="34" y="82" class="txt mut sm">IPOPT iter 41   obj=9.8e-3  viol=1e-4</text>
           <text x="34" y="100" class="txt mut sm">IPOPT iter 42   obj=9.1e-3  viol=8e-5</text>
-          <text x="34" y="118" class="txt sm" fill="var(--accent)">▍</text>
+          <text x="34" y="118" class="txt sm hl">▍</text>
 
           <text x="20" y="176" class="txt b">Pareto stage tracker</text>
           <g>
@@ -463,10 +473,11 @@
         </svg>
       </div>
       <ul class="notes">
-        <li><b>Subprocess backend:</b> tail stdout — IPOPT prints per-iteration status (verbosity via <code>ipopt_print</code>).</li>
-        <li><b>In-process / compogen:</b> forward structured events instead of parsing text.</li>
-        <li><b>Progress indicator:</b> single-point shows iterations; Pareto shows explicit stages 0–3.</li>
-        <li><b>Incremental plot:</b> designs appear in the scatter as each restart / grid-point finishes.</li>
+        <li><b>Read stdout through a PTY</b>, not a pipe. The iteration table is written by IPOPT's C++ Journalist to C-level stdout, where <code>python -u</code> has no effect; against a pipe glibc block-buffers it and all the rows arrive at once, on exit.</li>
+        <li><b>Progress indicator:</b> single-point shows iterations; Pareto shows explicit stages 0–3 and grid position.</li>
+        <li><b>Sweep coverage,</b> not incremental points: how many grid points have reported and how many found a feasible restart, so a barren sweep is visible while there is still time to cancel.</li>
+        <li><b>Designs cannot stream in.</b> Both scripts write their <code>.npz</code> after the solve, and the sweep never prints an achieved property vector per grid point — only ε targets, restart status, and a feasible count. Live points would need an upstream change.</li>
+        <li><b>The log is the source of truth:</b> a pure reducer replays it from disk, so a reattached run rebuilds its progress exactly.</li>
       </ul>
     </div>
   </section>
@@ -499,16 +510,17 @@
 
           <line x1="36" y1="196" x2="344" y2="196" stroke="var(--line)"/>
           <text x="40" y="222" class="txt sm b">max error</text>
-          <text x="290" y="222" class="txt sm b" fill="var(--ok)">2.9%</text>
+          <text x="290" y="222" class="txt sm b ok">2.9%</text>
           <rect x="36" y="238" width="308" height="24" rx="6" class="chip"/>
-          <text x="50" y="254" class="txt sm mut">skipped gracefully if the solver env is unavailable</text>
+          <text x="50" y="254" class="txt sm mut">disabled until a preflight probe says the env can run it</text>
         </svg>
       </div>
       <ul class="notes">
         <li><b>Toggle in section F;</b> per-phase <code>fenics_*</code> props or an H5 source, plus the conda env name.</li>
-        <li><b>Reads existing artifacts:</b> single-point <code>fenics_*_results.npz</code> / the CLI's third PNG panel; compogen path uses the MOOSE table.</li>
-        <li><b>Side-by-side</b> NN vs ground-truth with per-property error.</li>
-        <li><b>Graceful fallback:</b> a clear "validation unavailable" notice when the solver is missing.</li>
+        <li><b>Reads the run's own results:</b> <code>fenics_&lt;physics&gt;_results.npz</code> per physics, homogenised with upstream's exact maths so the panel agrees with the CLI's table. Written inside the run directory, so two runs never overwrite each other's ground truth.</li>
+        <li><b>Side-by-side</b> NN vs FEniCS per property, with the surrogate's error against the PDE alongside its error against the target — a design can hit its target and still be wrong.</li>
+        <li><b>Not skipped gracefully — the reason the toggle is gated.</b> Upstream calls the validator with no try/except, <i>after</i> the solve and <i>before</i> artifacts are written, so a broken env destroys a completed run.</li>
+        <li><b>Three defences:</b> default off; conda injected into the child's PATH; and a preflight that <i>imports the validator inside the env</i> rather than checking the env exists. Existence is not usability — the upstream <code>environment_fenics.yml</code> omits <code>dolfinx_mpc</code> and <code>pandas</code>, so a by-the-book env passes a name check and dies at import.</li>
       </ul>
     </div>
   </section>
@@ -551,19 +563,19 @@
         </svg>
       </div>
       <ul class="notes">
-        <li><b>Persist:</b> config JSON + artifact paths + status + achieved props + timestamp in a runs directory.</li>
-        <li><b>Or reuse compogen's markdown logbook</b> via <code>read_design_logbook</code> / <code>annotate_last_run</code>.</li>
+        <li><b>Persist:</b> config JSON, argv, status, log, artifacts and a re-runnable <code>run.sh</code> per run — the same record the Runner uses to reattach after a restart.</li>
+        <li><b>Not compogen's logbook:</b> <code>read_design_logbook</code> / <code>annotate_last_run</code> do not exist. The run store is ours, and it had to exist anyway.</li>
         <li><b>Reload:</b> a past run drops back into the design-space plot.</li>
-        <li><b>Compare:</b> pin designs from multiple runs — masks side-by-side, tables, convergence overlay.</li>
+        <li><b>Compare:</b> pin up to four designs from any runs — masks side by side, a property table with the relative spread called out, and a convergence overlay padded with NaN so an early-converging run stops being drawn instead of flatlining.</li>
       </ul>
     </div>
   </section>
 
   <!-- 11 · FRAMEWORK + OPEN -->
   <section class="slide">
-    <div class="kicker">Component 10 · open decision <span class="tag open">framework</span></div>
-    <h2>Framework choice &amp; open decisions</h2>
-    <p class="sub">Recommendation: a form-first Streamlit GUI plus a Chainlit chat entry point sharing one <code>Runner</code>.</p>
+    <div class="kicker">Component 10 · decided <span class="tag done">streamlit</span></div>
+    <h2>Framework choice &amp; the three decisions</h2>
+    <p class="sub">Shipped as a form-first Streamlit GUI. The chat entry point was not built, and no longer looks like the same project.</p>
     <div class="cols">
       <div class="figwrap">
         <svg viewBox="0 0 380 300" role="img" aria-label="Framework options">
@@ -584,16 +596,84 @@
 
           <path class="flow" d="M102,82 L175,175"/>
           <path class="flow" d="M278,82 L205,175"/>
-          <text x="190" y="262" text-anchor="middle" class="txt sm mut">one execution layer, two front-ends</text>
+          <text x="190" y="262" text-anchor="middle" class="txt sm mut">one execution layer, one front-end built</text>
         </svg>
       </div>
       <ul class="notes">
-        <li><b>Interactive hover</b> rules out static matplotlib — favors Streamlit/Gradio/web; Chainlit needs a custom element.</li>
-        <li><b>Not a fork:</b> both surfaces share the <code>Runner</code> and input schema.</li>
-        <li class="opn"><b>Open 1 — framework:</b> Streamlit + Chainlit, or a single surface?</li>
-        <li class="opn"><b>Open 2 — execution default:</b> Subprocess (v1) or start from compogen/HPC?</li>
-        <li class="opn"><b>Open 3 — Pareto via compogen:</b> new <code>pareto_epsilon_composite</code> tool in v1, or defer?</li>
+        <li><b>Interactive selection</b> rules out static matplotlib — Streamlit + Plotly, with the click caveat from Component 6.</li>
+        <li><b>Decision 1 — framework: Streamlit, single surface.</b> Chainlit is not built. A chat front-end would share the <code>Runner</code>, but it is a second product, not a second view.</li>
+        <li><b>Decision 2 — execution: subprocess.</b> Not merely "v1" — in-process is foreclosed by the environment split and by <code>cancel()</code>, so this is the design, not a starting point.</li>
+        <li><b>Decision 3 — Pareto via compogen: deferred.</b> compogen has no coupling to ai4ns and no inverse-design tool; the barrier is dependency resolution (ai4ns pins ~292 packages exactly), not a missing <code>@tool</code>.</li>
+        <li><b>Still open:</b> whether to patch upstream so designs can stream into the plot during a sweep — the only deck promise that needs a change on the optimizer's side.</li>
       </ul>
+    </div>
+  </section>
+
+  <!-- 12 · WHERE IT LANDED -->
+  <section class="slide">
+    <div class="kicker">Status</div>
+    <h2>Where it landed</h2>
+    <p class="sub">The ten components, measured against what runs today.</p>
+    <div class="cols wide">
+      <div class="figwrap">
+        <svg viewBox="0 0 900 330" role="img"
+             aria-label="Status of each component: built, deviated, or not built">
+          <text x="14" y="24" class="txt b">BUILT</text>
+          <g>
+            <rect x="14" y="36" width="270" height="30" rx="7" class="box acc"/>
+            <text x="28" y="56" class="txt sm">Form A–F · gating · validation</text>
+            <rect x="14" y="72" width="270" height="30" rx="7" class="box acc"/>
+            <text x="28" y="92" class="txt sm">Runner · PTY stream · killpg cancel</text>
+            <rect x="14" y="108" width="270" height="30" rx="7" class="box acc"/>
+            <text x="28" y="128" class="txt sm">Design space · click to inspect</text>
+            <rect x="14" y="144" width="270" height="30" rx="7" class="box acc"/>
+            <text x="28" y="164" class="txt sm">Run store · reattach · history</text>
+            <rect x="14" y="180" width="270" height="30" rx="7" class="box acc"/>
+            <text x="28" y="200" class="txt sm">Compare · up to 4 pinned designs</text>
+            <rect x="14" y="216" width="270" height="30" rx="7" class="box acc"/>
+            <text x="28" y="236" class="txt sm">FEniCS panel · NN vs ground truth</text>
+            <rect x="14" y="252" width="270" height="30" rx="7" class="box acc"/>
+            <text x="28" y="272" class="txt sm">Preflight doctor · cost gate · run.sh</text>
+          </g>
+
+          <text x="312" y="24" class="txt b">DEVIATED</text>
+          <g>
+            <rect x="312" y="36" width="270" height="46" rx="7" class="box"/>
+            <text x="326" y="56" class="txt sm">Hover popover → click detail</text>
+            <text x="326" y="72" class="txt sm mut">Plotly hover never reaches Python</text>
+            <rect x="312" y="88" width="270" height="46" rx="7" class="box"/>
+            <text x="326" y="108" class="txt sm">Incremental points → coverage</text>
+            <text x="326" y="124" class="txt sm mut">artifacts are written only at the end</text>
+            <rect x="312" y="140" width="270" height="46" rx="7" class="box"/>
+            <text x="326" y="160" class="txt sm">3 backends → 1</text>
+            <text x="326" y="176" class="txt sm mut">in-process cannot cancel</text>
+            <rect x="312" y="192" width="270" height="46" rx="7" class="box"/>
+            <text x="326" y="212" class="txt sm">Pydantic reuse → schema from scratch</text>
+            <text x="326" y="228" class="txt sm mut">upstream has none</text>
+            <rect x="312" y="244" width="270" height="46" rx="7" class="box"/>
+            <text x="326" y="264" class="txt sm">"Skipped gracefully" → gated</text>
+            <text x="326" y="280" class="txt sm mut">it was destructive, not graceful</text>
+          </g>
+
+          <text x="610" y="24" class="txt b">NOT BUILT</text>
+          <g>
+            <rect x="610" y="36" width="276" height="46" rx="7" class="chip"/>
+            <text x="624" y="56" class="txt sm">Chainlit chat surface</text>
+            <text x="624" y="72" class="txt sm mut">a second product, not a second view</text>
+            <rect x="610" y="88" width="276" height="46" rx="7" class="chip"/>
+            <text x="624" y="108" class="txt sm">compogen backend</text>
+            <text x="624" y="124" class="txt sm mut">no coupling to ai4ns</text>
+            <rect x="610" y="140" width="276" height="46" rx="7" class="chip"/>
+            <text x="624" y="160" class="txt sm">Plasticity targets</text>
+            <text x="624" y="176" class="txt sm mut">no flag in either script</text>
+            <rect x="610" y="196" width="276" height="86" rx="7" class="box"/>
+            <text x="624" y="218" class="txt sm b">Blocking nothing</text>
+            <text x="624" y="238" class="txt sm mut">checkpoints in place; a real</text>
+            <text x="624" y="254" class="txt sm mut">single-point solve runs end to end</text>
+            <text x="624" y="272" class="txt sm ok">IPOPT: Optimal Solution Found</text>
+          </g>
+        </svg>
+      </div>
     </div>
   </section>
 

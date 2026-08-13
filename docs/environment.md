@@ -150,8 +150,8 @@ it remains untested against the real optimizer and the toggle stays gated on the
 
 ## The FEniCS env: `environment_fenics.yml` does not describe a working env
 
-`fenics_env` is built now (`../envs/fenics_env`, dolfinx 0.11.0, PETSc 3.25.4, mpi4py 4.1.2) and it is a
-perfectly good dolfinx environment. It still cannot run the validator:
+`fenics_env` is built (`../envs/fenics_env`, dolfinx 0.11.0, PETSc 3.25.4, mpi4py 4.1.2) and it is a
+perfectly good dolfinx environment. Straight from the yml it still could not run the validator:
 
 ```
 $ conda run -n fenics_env python -c 'import fenics_validation.validate'   # cwd = ai4ns root
@@ -167,9 +167,25 @@ unimportable without it. `output.py:7` imports `pandas`. **`environment_fenics.y
 stops at `fenics-dolfinx>=0.8`. Both are on conda-forge and match the installed stack
 (`dolfinx_mpc 0.11.0`, py311):
 
+Both are installed here now, so `import fenics_validation.validate` succeeds, the preflight goes green and
+the validation toggle is live. Getting them in took one non-obvious step: the unconstrained
+
 ```bash
-conda install -n fenics_env -c conda-forge dolfinx_mpc pandas
+conda install -n fenics_env -c conda-forge dolfinx_mpc pandas       # never finished
 ```
+
+was still solving after 40 minutes, three times over (libmamba, conda 24.11). Pinning the build that
+matches the env's own variant and freezing everything else finished immediately:
+
+```bash
+conda install -n fenics_env --override-channels -c conda-forge --freeze-installed \
+    dolfinx_mpc=0.11.0=py311hbef1974_0 pandas
+```
+
+`py311hbef1974_0` is the mpich + real-PETSc build of the four py311 candidates, matching `mpich 5.0.1` and
+`petsc 3.25.4=real_*`. Identify the right one with
+`conda search -c conda-forge --info dolfinx_mpc=0.11.0` rather than guessing — an openmpi build would
+resolve and then fail at import.
 
 Why this is a documented finding rather than a footnote: it interacts with the destructive path below.
 Checking that the *env exists* is not checking that it *works*, and the gap between the two is one

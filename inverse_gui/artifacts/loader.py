@@ -19,6 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
+from . import fenics as fenics_mod
 from .model import Design, DesignSet, Criterion
 
 SINGLE_NAME = 'inverse_result_fm_multi_ac.npz'
@@ -83,10 +84,15 @@ def load_run(artifact_dir: str | Path) -> DesignSet | None:
     """Load whichever artifact shape is present. None when nothing has been written."""
     found = find_artifacts(artifact_dir)
     if 'pareto' in found:
-        return load_pareto(found['pareto'])
-    if 'single' in found:
-        return load_single_point(Path(artifact_dir))
-    return None
+        ds = load_pareto(found['pareto'])
+    elif 'single' in found:
+        ds = load_single_point(Path(artifact_dir))
+    else:
+        return None
+    # Optional and separate: validation writes its own tree next to these files, and
+    # it may be absent, partial, or from a physics that failed. Never fatal.
+    fenics_mod.attach(ds, artifact_dir)
+    return ds
 
 
 # ------------------------------------------------------------------ single point

@@ -218,6 +218,13 @@ def _with_output_dir(cfg: RunConfig, path: str) -> RunConfig:
     import copy
     out = copy.deepcopy(cfg)
     out.output_dir = path
+    # Same reasoning for validation output. Left alone, an explicit
+    # --fenics_output_dir sends ground-truth results somewhere outside the run
+    # directory, where the results panel cannot find them and two runs overwrite
+    # each other. Empty is the good case: upstream then defaults it to
+    # <output_dir>/fenics, which is already inside this run.
+    if out.fenics.output_dir.strip():
+        out.fenics.output_dir = str(Path(path) / 'fenics')
     return out
 
 

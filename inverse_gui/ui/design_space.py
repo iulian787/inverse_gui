@@ -26,7 +26,8 @@ _DOMINATED = '#9aa7b8'
 _INFEASIBLE = '#c23b3b'
 
 
-def render(ds: DesignSet, *, key_prefix: str, target_tol: float = 0.02) -> None:
+def render(ds: DesignSet, *, key_prefix: str, target_tol: float = 0.02,
+           run_id: str = '') -> None:
     choices = ds.axis_choices()
     if not choices:
         st.info('This artifact has no plottable properties.')
@@ -53,7 +54,7 @@ def render(ds: DesignSet, *, key_prefix: str, target_tol: float = 0.02) -> None:
         st.caption('Click a point to see its microstructure and how it did against '
                    'the criteria.')
         return
-    _detail(ds, ds.designs[idx], target_tol=target_tol)
+    _detail(ds, ds.designs[idx], target_tol=target_tol, run_id=run_id)
 
 
 def _selected_index(event) -> int | None:
@@ -148,7 +149,8 @@ def _value(d: Design, prop: str):
     return d.final_loss if prop == 'final_loss' else d.get(prop)
 
 
-def _detail(ds: DesignSet, design: Design, *, target_tol: float) -> None:
+def _detail(ds: DesignSet, design: Design, *, target_tol: float,
+            run_id: str = '') -> None:
     st.divider()
     st.markdown(f'#### Design {design.label}')
     left, right = st.columns([1, 1.5])
@@ -164,7 +166,12 @@ def _detail(ds: DesignSet, design: Design, *, target_tol: float) -> None:
         meta.append('feasible' if design.feasible else '**infeasible**')
         if design.final_loss is not None:
             meta.append(f'loss {design.final_loss:.4g}')
+        if design.has_fenics:
+            meta.append('FEniCS validated')
         st.caption(' · '.join(meta))
+        if run_id:
+            from . import compare
+            compare.pin_button(run_id, design)
 
     with right:
         _criteria_table(ds, design, target_tol)
@@ -176,26 +183,71 @@ def _detail(ds: DesignSet, design: Design, *, target_tol: float) -> None:
 
 
 def _criteria_table(ds: DesignSet, design: Design, target_tol: float) -> None:
-    rows = []
-    met_count = 0
-    checked = 0
-    for prop in ds.prop_names:
+    """Achieved vs requested, plus ground truth when validation ran.
+
+    The surrogate column is what the optimizer solved against; the FEniCS column is
+    what the PDE says the same mask actually does. The gap between them is the
+    number that decides whether to trust the design, so it gets its own column
+    rather than a separate panel.
+    """
+    rows, line = criteria_rows(ds, design, target_tol)
+    if line:
+        st.markdown(line)
+    st.dataframe(rows, hide_index=True, width='stretch')
+    if design.has_fenics:
+        st.caption('FEniCS values are recomputed from the run\'s own '
+                   '`fenics_<physics>_results.npz`, using upstream\'s homogenisation '
+                   'so they match the number the CLI prints.')
+
+
+def criteria_rows(ds: DesignSet, design: Design,
+                  target_tol: float) -> tuple[list[dict], str]:
+    """Rows for the detail table, plus its one-line summary. Pure, so it is tested.
+
+    Two different errors share this table and must not be confused: `error` is the
+    surrogate against what the user *asked for*, `Δ` is the surrogate against what
+    the PDE *says it got*. A design can hit its target and still be wrong.
+    """
+    has_gt = design.has_fenics
+    # A physics FEniCS solved may expose a property the surrogate never wrote.
+    extra = [p for p in sorted(design.fenics_props) if p not in ds.prop_names]
+
+    rows: list[dict] = []
+    met_count = checked = 0
+    deltas: list[float] = []
+    for prop in [*ds.prop_names, *extra]:
         achieved = design.get(prop)
         crit = ds.criterion_for(prop)
         met, err = (crit.check(achieved, target_tol) if crit else (None, None))
         if met is not None:
             checked += 1
             met_count += int(met)
-        rows.append({
-            'property': prop,
-            'achieved': _fmt(achieved),
-            'requested': _requested(crit),
-            'error': '' if err is None else f'{err * 100:.1f}%',
-            '': '' if met is None else ('✓' if met else '✗'),
-        })
+        row = {'property': prop, 'NN' if has_gt else 'achieved': _fmt(achieved)}
+        if has_gt:
+            truth = design.fenics_props.get(prop)
+            delta = _relative(achieved, truth)
+            if delta is not None:
+                deltas.append(delta)
+            row['FEniCS'] = _fmt(truth)
+            row['Δ'] = '' if delta is None else f'{delta * 100:.1f}%'
+        row['requested'] = _requested(crit)
+        row['error'] = '' if err is None else f'{err * 100:.1f}%'
+        row[''] = '' if met is None else ('✓' if met else '✗')
+        rows.append(row)
+
+    parts = []
     if checked:
-        st.markdown(f'**meets {met_count}/{checked}**')
-    st.dataframe(rows, hide_index=True, width='stretch')
+        parts.append(f'**meets {met_count}/{checked}**')
+    if deltas:
+        parts.append(f'max surrogate error vs FEniCS **{max(deltas) * 100:.1f}%**')
+    return rows, ' · '.join(parts)
+
+
+def _relative(nn, truth) -> float | None:
+    """|NN − FEniCS| / |FEniCS|, ground truth in the denominator."""
+    if nn is None or truth is None or truth == 0:
+        return None
+    return abs(nn - truth) / abs(truth)
 
 
 def _requested(crit) -> str:
@@ -233,7 +285,7 @@ def render_for_run(run_id: str, cfg) -> None:
     # The band around a `target` directive is target_tol wide, and that value is a
     # property of the run, not of the viewer. Using a fixed default here would draw
     # a 2% band around a run solved to 0.1% and make a miss look like a hit.
-    render(ds, key_prefix=f'ds.{run_id}',
+    render(ds, key_prefix=f'ds.{run_id}', run_id=run_id,
            target_tol=_run_target_tol(cfg.runs_dir, run_id))
 
 

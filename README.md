@@ -5,9 +5,9 @@ launch single-point or Pareto runs, and browse the resulting space of designs.
 
 **Status:** working against the real optimizer — with the EffPropNet checkpoints in place, a
 single-point solve runs end to end from the form: launch, live IPOPT table, artifacts, design-space
-plot. Point `[scripts]` at the stand-in optimizer to develop without checkpoints. Run history is
-list-and-reload; cross-run compare is not built, and FEniCS validation stays gated until its env can
-import the upstream validator.
+plot. Point `[scripts]` at the stand-in optimizer to develop without checkpoints. Run history reloads
+past runs, up to four designs can be pinned for side-by-side compare, and FEniCS ground truth appears as
+its own column in the design detail.
 
 ```bash
 ./scripts/setup.sh          # first time only
@@ -18,7 +18,7 @@ import the upstream validator.
 |---|---|
 | `app.py` | the Streamlit app — three panes: input, run/progress, design space |
 | `inverse_gui/` | the package (see *Architecture* below) |
-| `design_slides.html` | the original design walkthrough — open in a browser |
+| `design_slides.html` | the design walkthrough — open in a browser; the last slide is built / deviated / not built |
 | `scripts/setup.sh` | builds both environments, idempotent |
 | `scripts/fake_optimizer.py` | stand-in for the optimizer; unblocks development |
 | `docs/environment.md` | why the environments are split, and the measured launch constraints |
@@ -30,8 +30,8 @@ import the upstream validator.
 domain/      pure       property tables, directive grammar, RunConfig -> argv, rules, cost
 execution/   no UI      child env, PTY process, runner, run store, registry, preflight
 parse/       no UI      stdout line classifier + progress reducer
-artifacts/   numpy      both npz shapes -> one DesignSet
-ui/          streamlit  form sections, run pane, design space
+artifacts/   numpy      both npz shapes -> one DesignSet, plus FEniCS ground truth
+ui/          streamlit  form sections, run pane, design space, compare, doctor
 ```
 
 Nothing under the first four may import `streamlit` — enforced by `tests/test_architecture.py`.
@@ -104,6 +104,11 @@ Note that `environment_fenics.yml` alone does **not** produce a usable env — i
 then verifies by importing the validator rather than just `dolfinx`. Re-run it with `--fenics` to repair
 an existing `fenics_env`. Until that import succeeds, the app's validation toggle stays disabled and the
 Doctor panel prints the exact `conda install` line.
+
+If you install them by hand, pin the build: an unconstrained solve on this env did not finish in 40
+minutes, while `--freeze-installed` plus the variant-matching build string
+(`dolfinx_mpc=0.11.0=py311hbef1974_0` for mpich + real PETSc) completed at once. See
+`docs/environment.md`.
 
 The script is idempotent: re-running it skips environments that already exist, re-verifies the solver, and
 regenerates the machine-specific bits. It finishes by creating `config.toml` from `config.example.toml` if

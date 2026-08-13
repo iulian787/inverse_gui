@@ -10,15 +10,16 @@ optimizer CLIs, launches them, streams their output live, and plots the resultin
 ```bash
 ./scripts/setup.sh                       # builds .venv and cenv, idempotent
 .venv/bin/streamlit run app.py
-.venv/bin/python -m pytest tests/ -q     # ~162 tests, ~38s
+.venv/bin/python -m pytest tests/ -q     # ~221 tests, ~47s
 ```
 
 Working, **against the real optimizer** — the checkpoints are on disk now and a single-point solve has run
 end to end from the GUI: form (sections A–F), physics gating, validation, cost estimate,
 launch/stream/cancel, reattach, design-space scatter with click-to-inspect, run history list-and-reload,
-preflight doctor.
-Not built: cross-run compare, FEniCS validation panel (gated off — `fenics_env` exists but cannot import
-the upstream validator; see below).
+cross-run compare (up to 4 pinned designs), FEniCS ground-truth column in the design detail, live sweep
+coverage, preflight doctor.
+Not built: a chat surface, and live *design points* during a run — see the gotcha about why that one
+needs an upstream change. Every preflight check passes on this machine, FEniCS included.
 
 ## Layering — the one rule that matters
 
@@ -46,7 +47,7 @@ mid-run, leaving a live optimizer with no Stop button.
 |---|---|---|---|---|
 | `.venv` | uv | 3.12 | `inverse_gui/.venv` | the GUI. Never solves. |
 | `cenv` | conda-forge | 3.11 | `../envs/cenv` (big disk) | the optimizer |
-| `fenics_env` | conda-forge | 3.11 | `../envs/fenics_env` (big disk) | optional PDE validation; built, incomplete |
+| `fenics_env` | conda-forge | 3.11 | `../envs/fenics_env` (big disk) | optional PDE validation; built and working |
 
 **Why the solver env must be conda:** `cyipopt` has never published a wheel — PyPI serves an sdist only,
 for every release and platform. Building it needs a compiler plus a pre-existing IPOPT + MUMPS/HSL.
@@ -61,11 +62,25 @@ not conda in the parent env. This does foreclose the deck's in-process backend; 
 are both ~292-line `pip freeze` dumps (open-webui, langchain, chromadb, pytube) and **neither lists
 cyipopt**. Never build an environment from them.
 
-**`environment_fenics.yml` is incomplete the same way.** `fenics_env` is built and is a working dolfinx
-0.11 environment, but the upstream validator will not import in it: `fenics_validation/mesh.py:7` needs
-`dolfinx_mpc` (periodic BCs, all four solvers) at package level and `output.py:7` needs `pandas`, and the
-yml lists neither. Fix with `conda install -n fenics_env -c conda-forge dolfinx_mpc pandas`;
-`setup.sh --fenics` now does this and verifies by importing `fenics_validation.validate`, not `dolfinx`.
+**`environment_fenics.yml` is incomplete the same way.** It builds a working dolfinx 0.11 environment in
+which the upstream validator will not import: `fenics_validation/mesh.py:7` needs `dolfinx_mpc` (periodic
+BCs, all four solvers) at package level and `output.py:7` needs `pandas`, and the yml lists neither.
+`fenics_env` here has both now, so `import fenics_validation.validate` succeeds and the panel is live;
+`setup.sh --fenics` installs them and verifies by importing the validator, not `dolfinx`.
+
+**Installing into `fenics_env` needs an exactly-pinned build.** A plain
+`conda install -n fenics_env -c conda-forge dolfinx_mpc pandas` never finished here — three attempts, 40+
+minutes each, libmamba still in "Solving environment". What worked in seconds was pinning the build that
+matches the env's own variant and freezing the rest:
+
+```bash
+conda install -n fenics_env --override-channels -c conda-forge --freeze-installed \
+    dolfinx_mpc=0.11.0=py311hbef1974_0 pandas
+```
+
+The build string is not arbitrary: of the four py311 builds, `py311hbef1974_0` is the mpich + real-PETSc
+one, matching `mpich 5.0.1` and `petsc 3.25.4=real_*` in this env. Pick the matching variant with
+`conda search -c conda-forge --info dolfinx_mpc=0.11.0` before installing.
 
 Because of that, the `FEniCS env` preflight check **probes the import** (`conda run -n <env> python -c
 'import fenics_validation.validate'`, cwd = the ai4ns root) instead of grepping `conda env list` for the
@@ -118,6 +133,13 @@ Each of these cost real debugging time; the comment in the code names the failur
   otherwise you are testing stale code and will chase phantom bugs.
 - **`--pareto_steps` is always emitted**, even at its default, because it is the defining parameter of
   the sweep (and it is how a single stand-in script tells the two modes apart).
+- **Designs cannot appear in the scatter mid-run, and this is not a missing feature.** Both scripts write
+  their npz *after* the solve — single-point's per-restart files in a post-solve loop
+  (`run_inverse_design_fm_multi_ac.py:769-787`), Pareto's once at `:709` — and stdout never carries an
+  achieved property vector per grid point: the sweep prints the ε *targets*, per-restart `status=/obj=`,
+  and `N/M restarts feasible` (`:562`, `:441`, `:577`). So the live pane shows sweep **coverage**
+  (`ProgressState.points_reported/points_feasible`, rendered by `run_pane._sweep_coverage`). Real
+  incremental points would need an upstream change; don't re-litigate it from the deck's wording.
 
 ## Checkpoints — present, and configured in `config.toml`
 
@@ -150,6 +172,37 @@ printf** so it reproduces the real C-level buffering, writes synthetic `.npz` ar
 sets, and has `--crash` / `--hang` for exercising the Runner's failure and cancel paths. Point `[scripts]`
 at it to switch. Pareto mode is selected by `--pareto_steps`, matching upstream.
 
+## Reading FEniCS ground truth
+
+`artifacts/fenics.py` finds the validator's own `.npz` files and hangs the converted properties on the
+designs they belong to; `design_space.criteria_rows` then renders an NN-vs-FEniCS column. Four things
+about it are load-bearing:
+
+- **The maths is a deliberate port**, `_fenics_aniso_props` at `run_inverse_design_fm_multi_ac.py:213-234`,
+  including `inv(C + 1e-6·I)` and the `1/(S + 1e-8)` guards. That guard is *not* negligible: at
+  E ≈ 210 GPa it reads 0.2% low. Keeping it is the point — the panel has to agree with the number the CLI
+  prints in its own comparison table. `test_the_upstream_compliance_guard_is_preserved` pins it.
+- **Three different layouts**, one per upstream branch: `fenics/<physics>/` (restarts = 1),
+  `fenics/restart<r>/<physics>/` (restarts > 1, and then there is *no* flat copy — the best design
+  inherits from the restart whose `final_loss` matched), and `fenics/rank0_<i>/<physics>/` plus a
+  `fenics_validation.npz` summary for Pareto.
+- **`rank0_<i>` is the i-th rank-0 solution, not design i.** The summary npz is keyed by the real design
+  index; the directory fallback is not. They are separate functions (`load_pareto`, `load_pareto_dirs`)
+  for exactly that reason — merging them pins ground truth to the wrong microstructure the moment any
+  solution is dominated.
+- **The runner rewrites `--fenics_output_dir`** the way it rewrites `--output_dir`. Upstream defaults it
+  to `<output_dir>/fenics`, which is already inside the run; an explicit value in section F would put
+  ground truth somewhere shared, where the panel cannot find it and two runs overwrite each other.
+
+## Comparing designs across runs
+
+`ui/compare.py`. Pins are `(run_id, design index)` in `session_state`, capped at 4, resolved against disk
+on every render — so a pin cannot go stale against a re-run, and a deleted run degrades to a caption
+rather than an exception. The spread column is relative to the mean so E (1e5) and alpha (1e-5) are
+comparable, and is blank when a property is missing from any pin. Convergence curves are NaN-padded, not
+zero- or last-value-padded: a run that converged in 40 iterations must stop being drawn at 40 rather than
+flatline across the width of the longest run.
+
 ## The design deck
 
 `design_slides.html` is self-contained — CSS, SVG figures, and navigation JS all inline. Keep it that way;
@@ -161,7 +214,7 @@ xdg-open design_slides.html
 
 ## Deck structure and conventions
 
-Eleven `<section class="slide">` elements inside `<main class="deck">`. Only the one with `.active` is
+Twelve `<section class="slide">` elements inside `<main class="deck">`. Only the one with `.active` is
 displayed. The typical slide is:
 
 ```html
@@ -179,6 +232,10 @@ displayed. The typical slide is:
 **Adding or removing a slide requires no other edits.** The script at the bottom derives the total count,
 builds the dot navigation, and wires prev/next from `document.querySelectorAll('.slide')`. The hardcoded
 `11` in `<span id="tot">` is overwritten on load. Keyboard nav (arrows, PageUp/Down, Home/End) is global.
+
+**Colour inside a figure must come from a class, never a `fill=` attribute.** `.txt` already sets `fill`,
+and a CSS declaration beats a presentation attribute — so `class="txt" fill="var(--ok)"` renders as plain
+ink. Every ✓/✗ in the deck was silently monochrome until `.txt.ok` / `.txt.bad` / `.txt.hl` were added.
 
 ## Theming
 
@@ -216,25 +273,28 @@ the upstream repos, which are siblings of this directory:
 
 The deck's central design claim is that a `Runner` interface (`submit`/`stream`/`result`/`cancel`) is the
 single seam between the GUI and the optimizer, so the three backends (subprocess, in-process, compogen)
-are interchangeable. Slides that describe unsettled choices carry a `<span class="tag open">` badge; the
-three open decisions are enumerated on the final slide. When editing, keep those badges in sync with
-whatever has actually been decided — they are the deck's status markers.
+are interchangeable — a claim the deck now retracts on its own Component 5 slide. Decided choices carry a
+`<span class="tag done">` badge, unsettled ones `<span class="tag open">`; both are currently `done`
+(subprocess, Streamlit). Keep them in sync with what has actually been decided — they are the deck's
+status markers — and keep the final "Where it landed" slide honest about built / deviated / not built.
 
-### Deck claims that are factually wrong
+### Upstream facts the deck used to get wrong
 
-Verified against the source. Don't build on these:
+The deck has been reconciled with the implementation, so these are no longer claims you will read there —
+but they are the underlying facts, and each was verified against the source. Don't reintroduce them:
 
-- **Slide 9, "skipped gracefully if the solver env is unavailable."** False, and the failure is
-  destructive. `run_fenics_validation` is called at `:701-726` with no try/except in the chain and shells
-  `conda run` at `:283`. With `auto_activate_base: false` and a non-login subprocess, `conda` missing from
-  the child's PATH is the *default* case → uncaught `FileNotFoundError`, fired *after* the solve completes
-  but *before* `plot_results` at `:728`. A twenty-minute run dies without writing artifacts.
-- **Slide 2, "the existing Pydantic schema."** There is none — zero hits for `pydantic`/`BaseModel` across
-  `amit_AI4NS`. `RunConfig` must be written from scratch against the argparse surface.
-- **Slide 6, compogen "reuses staging, logbook, and cluster scale."** Staging and scale are real; the
-  logbook is not — no `read_design_logbook`, no `annotate_last_run`, and no inverse-design or Pareto tool
-  in its 20-tool registry (the workflow is strictly forward simulation). compogen depends on `compgen`
-  (MOOSE/Sculpt), not on ai4ns, and has no coupling to it at all.
-- **Slide 6, the three backends as freely interchangeable.** In-process forces the GUI process to *be*
-  `cenv`, and leaves `cancel()` unimplementable — you cannot interrupt a thread inside C++ IPOPT.
-- **Slide 8, "tail stdout."** True only with a PTY; see the launching constraints above.
+- **FEniCS validation is not "skipped gracefully" when the env is unavailable.** `run_fenics_validation`
+  is called at `:701-726` with no try/except in the chain and shells `conda run` at `:283`. With
+  `auto_activate_base: false` and a non-login subprocess, `conda` missing from the child's PATH is the
+  *default* case → uncaught `FileNotFoundError`, fired *after* the solve completes but *before*
+  `plot_results` at `:728`. A twenty-minute run dies without writing artifacts.
+- **There is no upstream Pydantic schema to reuse** — zero hits for `pydantic`/`BaseModel` across
+  `amit_AI4NS`. `RunConfig` was written from scratch against the argparse surface.
+- **compogen has no logbook and no coupling to ai4ns.** Staging and cluster scale are real; there is no
+  `read_design_logbook`, no `annotate_last_run`, and no inverse-design or Pareto tool in its 20-tool
+  registry (strictly forward simulation). It depends on `compgen` (MOOSE/Sculpt).
+- **The three backends are not interchangeable.** In-process forces the GUI process to *be* `cenv`, and
+  leaves `cancel()` unimplementable — you cannot interrupt a thread inside C++ IPOPT.
+- **"Tail stdout" only works with a PTY**; see the launching constraints above.
+- **Neither script has any plasticity flag, directive, or checkpoint**, despite the `plasticity_yield_*.pt`
+  sitting in `models/fm_multi_store/`.

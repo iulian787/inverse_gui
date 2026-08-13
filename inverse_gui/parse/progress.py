@@ -24,6 +24,15 @@ class ProgressState:
     grid_index: int = 0
     grid_total: int = 0
     estimated_solves: int = 0
+    # Sweep coverage. Aggregates rather than a per-point list because a grid is a
+    # Cartesian product and routinely runs to hundreds of points; `recent` keeps
+    # just enough for a sparkline. Upstream never prints the achieved property
+    # vector per point, so this is the whole of what a live sweep can report.
+    points_reported: int = 0
+    points_feasible: int = 0
+    solves_feasible: int = 0
+    solves_attempted: int = 0
+    recent: tuple[tuple[int, int, int], ...] = ()   # (grid index, feasible, total)
     # single-point / per-solve
     iter: int | None = None
     objective: float | None = None
@@ -45,6 +54,19 @@ class ProgressState:
         if self.grid_total:
             return min(1.0, self.grid_index / self.grid_total)
         return None
+
+    @property
+    def sweep_summary(self) -> str:
+        """Coverage so far, or '' before the sweep has reported a point.
+
+        Feasibility is the outcome that matters mid-sweep: a grid point where every
+        restart failed contributes nothing to the front, and a sweep that is finding
+        none is worth cancelling early rather than at the end.
+        """
+        if not self.points_reported:
+            return ''
+        return (f'{self.points_feasible}/{self.points_reported} grid points '
+                f'feasible · {self.solves_feasible}/{self.solves_attempted} solves')
 
     @property
     def headline(self) -> str:
@@ -83,6 +105,16 @@ class ProgressReducer:
             s = replace(s, grid_total=d['combinations'])
         elif k is EventKind.GRID_POINT:
             s = replace(s, grid_index=d['index'], grid_total=d['total'] or s.grid_total)
+        elif k is EventKind.GRID_FEASIBLE:
+            feasible, total = d['feasible'], d['total']
+            s = replace(
+                s,
+                points_reported=s.points_reported + 1,
+                points_feasible=s.points_feasible + (1 if feasible else 0),
+                solves_feasible=s.solves_feasible + feasible,
+                solves_attempted=s.solves_attempted + total,
+                recent=(s.recent + ((s.grid_index, feasible, total),))[-60:],
+            )
         elif k is EventKind.ESTIMATE:
             s = replace(s, estimated_solves=d['total_solves'])
         elif k is EventKind.IPOPT_ITER:

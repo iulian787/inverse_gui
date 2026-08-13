@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from inverse_gui.domain import validate as validate_mod          # noqa: E402
 from inverse_gui.domain.schema import MODE_DEFAULTS, RunMode     # noqa: E402
-from inverse_gui.ui import design_space, doctor_pane, history, run_pane  # noqa: E402
+from inverse_gui.ui import compare, design_space, doctor_pane, history, run_pane  # noqa: E402
 from inverse_gui.ui import state as state_mod                    # noqa: E402
 from inverse_gui.ui.form import sections                         # noqa: E402
 
@@ -66,6 +66,10 @@ def main() -> None:
     st.divider()
     with st.expander('Run history', expanded=False):
         history.render(cfg)
+    pinned = len(compare.pins())
+    with st.expander(f'Compare designs{f" ({pinned} pinned)" if pinned else ""}',
+                     expanded=bool(pinned)):
+        compare.render(cfg)
     with st.expander('Environment check', expanded=False):
         doctor_pane.render(cfg)
 

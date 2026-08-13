@@ -25,6 +25,7 @@ Point [paths].ai4ns_repo at this repo and both [scripts] entries at this file.
 
 import argparse
 import ctypes
+import json
 import os
 import random
 import sys
@@ -209,9 +210,11 @@ def write_single_point(args, directives, rng, final_obj, loss_hist):
         'ac_epsi': args.ac_epsi, 'ac_lambda': args.ac_lambda, 'ac_dt': args.ac_dt,
         'ac_steps': args.ac_steps, 'ac_sharpen_beta': args.ac_sharpen_beta,
     }
+    achieved_props = {}
     for name, (mode, vals) in directives.items():
         ref = getattr(args, f'{name}_ref', PROP_DEFAULTS.get(name, 1.0))
         val = achieved(mode, vals, ref, rng)
+        achieved_props[name] = val
         payload[f'effective_{name}'] = val
         payload[f'directive_{name}'] = mode
         if mode == 'target':
@@ -239,6 +242,104 @@ def write_single_point(args, directives, rng, final_obj, loss_hist):
         cprint(f"Saved: {png}")
     except ImportError:
         cprint("[fake] matplotlib unavailable; skipped PNG")
+    return achieved_props
+
+
+# --------------------------------------------------------------- fake FEniCS
+
+# Which checkpoint flag turns a physics on, mirroring upstream's `vec_models` filter.
+FENICS_PHYSICS = {
+    'elastic': 'ckpt_elastic_fm',
+    'thermal_conductivity': 'ckpt_thermal_conductivity_fm',
+    'thermal_expansion': 'ckpt_thermal_expansion_fm',
+}
+
+
+def fenics_arrays(physics, ach, rng):
+    """Tensors whose homogenisation reproduces `ach` to within a few percent.
+
+    Built by inverting the reader's own maths (plane stress for C_hom) so the GUI
+    shows a believable NN-vs-truth gap instead of noise, and so a bug in that
+    conversion shows up as a wildly wrong number rather than a plausible one.
+    """
+    def jitter(x):
+        return float(x) * (1 + rng.normal(0, 0.03))
+
+    if physics == 'elastic':
+        E = jitter(ach.get('E', 2.0e5))
+        nu = min(0.45, max(0.01, jitter(ach.get('nu', 0.3))))
+        c = E / (1 - nu ** 2)
+        return {'C_hom': np.array([[c, c * nu, 0.0],
+                                   [c * nu, c, 0.0],
+                                   [0.0, 0.0, c * (1 - nu) / 2]])}
+    if physics == 'thermal_conductivity':
+        k = jitter(ach.get('kappa', 150.0))
+        return {'kappa_hom': np.diag([k * 1.01, k * 0.99])}
+    a = jitter(ach.get('alpha', 1.1e-5))
+    return {'homogenized_strain': np.array([a * 1.02, a * 0.98, a * 0.01])}
+
+
+def write_fenics_tree(args, out_dir, achieved, rng):
+    """One <physics>/fenics_<physics>_results.npz per active physics."""
+    wrote = []
+    for physics, flag in FENICS_PHYSICS.items():
+        if not getattr(args, flag, None):
+            continue
+        cprint(f"  [FEniCS] Running {physics} solver (env={args.fenics_conda_env})...")
+        d = os.path.join(out_dir, physics)
+        os.makedirs(d, exist_ok=True)
+        np.savez(os.path.join(d, f'fenics_{physics}_results.npz'),
+                 **fenics_arrays(physics, achieved, rng))
+        wrote.append(physics)
+    return wrote
+
+
+def write_fenics(args, rng, *, achieved=None, pareto=None):
+    """Reproduce upstream's two layouts: flat for single-point, rank0_* for Pareto."""
+    base = args.fenics_output_dir or os.path.join(args.output_dir, 'fenics')
+    if pareto is None:
+        write_fenics_tree(args, base, achieved or {}, rng)
+        return
+
+    prop_names, props, rank = pareto
+    rank0 = [i for i, r in enumerate(rank) if r == 0]
+    cprint(f"\n  Validating {len(rank0)} rank-0 solutions with FEniCS...")
+    summary = []
+    for i, idx in enumerate(rank0):
+        row = {name: float(props[idx, j]) for j, name in enumerate(prop_names)
+               if not np.isnan(props[idx, j])}
+        sol_dir = os.path.join(base, f'rank0_{i:03d}')
+        write_fenics_tree(args, sol_dir, row, rng)
+        summary.append({'solution_idx': int(idx),
+                        'fenics': _reread(sol_dir), 'nn': row})
+    path = os.path.join(args.output_dir, 'fenics_validation.npz')
+    np.savez_compressed(path, fenics_summary=np.array(json.dumps(summary),
+                                                      dtype=object))
+    cprint(f"\n  FEniCS validation saved to: {path}")
+
+
+def _reread(sol_dir):
+    """The summary upstream writes holds converted props, not raw tensors."""
+    out = {}
+    for physics in FENICS_PHYSICS:
+        path = os.path.join(sol_dir, physics, f'fenics_{physics}_results.npz')
+        if not os.path.exists(path):
+            continue
+        with np.load(path) as d:
+            if 'C_hom' in d.files:
+                C = d['C_hom']
+                S = np.linalg.inv(C + 1e-6 * np.eye(3))
+                out['E_xx'] = 1.0 / (S[0, 0] + 1e-8)
+                out['E_yy'] = 1.0 / (S[1, 1] + 1e-8)
+                out['E'] = 0.5 * (out['E_xx'] + out['E_yy'])
+                out['nu'] = -0.5 * (S[0, 1] * out['E_xx'] + S[1, 0] * out['E_yy'])
+            if 'kappa_hom' in d.files:
+                k = d['kappa_hom']
+                out['kappa'] = 0.5 * (float(k[0, 0]) + float(k[1, 1]))
+            if 'homogenized_strain' in d.files:
+                e = d['homogenized_strain']
+                out['alpha'] = 0.5 * (float(e[0]) + float(e[1]))
+    return {k: float(v) for k, v in out.items()}
 
 
 def write_pareto(args, directives, rng, n):
@@ -271,6 +372,7 @@ def write_pareto(args, directives, rng, n):
     )
     cprint(f"\nSaved: {path}")
     cprint("[note] the real pareto script writes no PNG; plotting is a separate step")
+    return prop_names, props, rank
 
 
 def main():
@@ -320,9 +422,19 @@ def main():
                     emit_ipopt_rows(max(2, args.iters // n), args.iter_delay)
                     if args.crash and g == n // 2:
                         cprint("[fake] --crash"); sys.exit(3)
+                    # Upstream's per-point outcome (:577). Some points find nothing,
+                    # which is the case the coverage strip exists to make visible.
+                    feasible = 0 if g % 4 == 3 else args.restarts
+                    for trial in range(args.restarts):
+                        cprint(f"    restart {trial + 1}: status="
+                               f"{'Solve_Succeeded' if feasible else 'Infeasible'}"
+                               f"  obj={0.5 / (g + 1):.4e}")
+                    cprint(f"    {feasible}/{args.restarts} restarts feasible")
             else:
                 time.sleep(args.iter_delay)
-        write_pareto(args, directives, rng, n)
+        pareto_out = write_pareto(args, directives, rng, n)
+        if args.fenics_validate:
+            write_fenics(args, rng, pareto=pareto_out)
     else:
         hist = []
         for r in range(args.restarts):
@@ -335,10 +447,10 @@ def main():
                 hist.append(obj)
                 if args.crash and k == args.iters // 2:
                     cprint("[fake] --crash"); sys.exit(3)
-        write_single_point(args, directives, rng, hist[-1], hist)
-
-    if args.fenics_validate:
-        cprint(f"\n[FEniCS] would run in env={args.fenics_conda_env} (fake: skipped)")
+        achieved_props = write_single_point(args, directives, rng, hist[-1], hist)
+        if args.fenics_validate:
+            cprint("\nRunning FEniCS validation...")
+            write_fenics(args, rng, achieved=achieved_props)
 
     cprint("\nDone.")
 

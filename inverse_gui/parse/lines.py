@@ -27,6 +27,7 @@ class EventKind(str, Enum):
     STAGE = 'stage'
     GRID_TOTAL = 'grid_total'
     GRID_POINT = 'grid_point'
+    GRID_FEASIBLE = 'grid_feasible'
     RESTART = 'restart'
     PAYOFF = 'payoff'
     SAVED = 'saved'
@@ -51,6 +52,10 @@ _GRID_TOTAL_RE = re.compile(
     r'=\s*(\d+)\s*solves?\s*\)'
 )
 _GRID_POINT_RE = re.compile(r'^\s*Grid point\s+(\d+)\s*/\s*(\d+)\s*:\s*(.*)$')
+# run_pareto_epsilon_fm_multi_ac.py:577, printed once per grid point after its
+# restarts. The only per-point outcome the sweep reports -- the achieved property
+# vector is never printed, which is why the live view shows coverage, not points.
+_GRID_FEASIBLE_RE = re.compile(r'^\s*(\d+)\s*/\s*(\d+)\s+restarts?\s+feasible\s*$')
 _RESTART_RE = re.compile(
     r'^\s*restart\s+(\d+)\s*:\s*(?:status=(\S+))?.*?(?:obj=([-\d.eE+]+))?\s*$'
 )
@@ -112,6 +117,11 @@ def classify(line: str) -> Event:
             'index': int(m.group(1)), 'total': int(m.group(2)),
             'eps': m.group(3)[:2000],     # bound it; it is a dict repr
         })
+
+    m = _GRID_FEASIBLE_RE.match(s)
+    if m:
+        return Event(EventKind.GRID_FEASIBLE, s,
+                     {'feasible': int(m.group(1)), 'total': int(m.group(2))})
 
     m = _PAYOFF_RE.match(s)
     if m:

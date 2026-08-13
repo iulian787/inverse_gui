@@ -152,9 +152,30 @@ def _header(snap) -> None:
     frac = snap.progress.fraction
     if frac is not None and not snap.is_terminal:
         st.progress(frac)
+    _sweep_coverage(snap.progress)
     if snap.state == runstore.STATE_ORPHANED:
         st.warning('This run was marked running but its process is gone — most '
                    'likely the app was killed with SIGKILL.', icon='👻')
+
+
+def _sweep_coverage(progress) -> None:
+    """Per-grid-point feasibility, as the sweep produces it.
+
+    Not the designs themselves: upstream writes its npz once at the end and never
+    prints an achieved property vector per grid point, so there is nothing to plot
+    in the scatter until the run finishes. Coverage is what the log actually
+    carries -- see CLAUDE.md.
+    """
+    summary = progress.sweep_summary
+    if not summary:
+        return
+    st.caption(summary)
+    # One cell per recent grid point: filled where at least one restart was
+    # feasible. Cheap enough to redraw every second, and it makes a barren stretch
+    # of the grid obvious while there is still time to cancel.
+    cells = ''.join('▰' if feasible else '▱' for _, feasible, _ in progress.recent)
+    if cells:
+        st.caption(cells)
 
 
 def _controls(run_id: str, snap) -> None:
@@ -178,6 +199,14 @@ def _log(snap, cfg) -> None:
         with st.expander(f'{len(snap.progress.warnings)} warning(s) from the solver'):
             for w in snap.progress.warnings:
                 st.caption(w)
+    if snap.progress.fenics:
+        # Validation runs after the solve, so these lines are the only sign of life
+        # during a phase that can take longer than the optimisation itself -- and if
+        # a physics solver fails, upstream only says so here.
+        with st.expander(f'FEniCS validation ({len(snap.progress.fenics)} line(s))',
+                         expanded=not snap.is_terminal):
+            for line in snap.progress.fenics:
+                st.caption(line)
 
 
 # ---------------------------------------------------------------- active runs strip
